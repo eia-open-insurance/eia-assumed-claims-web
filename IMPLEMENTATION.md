@@ -7,3 +7,9 @@
 5. Add the remote descriptor to the signed manifest.
 6. Add the nginx Docker image and Helm values.
 7. Verify the bundle budget and accessibility checks.
+
+## Implemented
+
+- Claim register/create plus workbench tabs for loss advice, reserve history, cash calls,
+  recoveries, commutation, and disputes.
+- Playwright flows for the ASSUMED header, loss-advice record/accept, and reserve history.

@@ -31,9 +31,15 @@ Assumed Claims federated remote: screens, widgets, record tabs, and transaction 
   proxies `/api` to `http://localhost:8090`.
 - Lists assumed claims, creates a claim through the domain service, and displays structured
   validation errors returned by the domain.
+- Record workbench tabs for the ASSUMED claim: Loss advice (advice history, accept, record advice,
+  bordereau batch ingest), Reserve history (append-only history plus a reserve-change form),
+  Cash calls, Recoveries, Commutation, and Disputes (raise and resolve). The claim status action
+  remains available from the workbench.
+- Money is rendered from the API's decimal strings; the UI never treats an amount as a float for
+  submission (inputs are sent as decimal strings).
 - `@swc/core` is pinned to exactly `1.10.7`.
-- One Playwright test mocks the API, verifies the workbench renders, and asserts the ASSUMED
-  book header is sent.
+- Three Playwright tests mock the API statefully: the claim register and ASSUMED book header, the
+  loss-advice record/accept flow, and the reserve-history flow with the derived current reserve.
 
 ## Local run
 
@@ -46,10 +52,9 @@ npm test
 
 ## Verification
 
-- Lint and format
-- Unit tests with 100% business-logic coverage where applicable
+- Playwright: `npx playwright test` (3 tests).
+- Production bundle: `npm run build`.
 - Contract tests
-- Integration or Playwright tests where applicable
 - Security scan and SBOM
 - Build and publish
 

@@ -1,17 +1,17 @@
-# eia-reinsurance-web
+# eia-assumed-claims-web
 
 - GitHub organization: `eia-open-insurance`
-- Repository URL: https://github.com/eia-open-insurance/eia-reinsurance-web
+- Repository URL: https://github.com/eia-open-insurance/eia-assumed-claims-web
 - Type: Federated front-end
 - Deployable: Yes
-- Owner: Reinsurance
+- Owner: Assumed Claims
 - Runtime: React 19 and Webpack 5
 - Data store: None
 - Depends on: eia-frontend-platform, eia-contracts, eia-gateway
 
 ## Purpose
 
-Reinsurance federated remote: screens, widgets, record tabs, and transaction composition. Reinsurance claims: loss advices, reserves, cash calls, recoveries, and commutations.
+Assumed Claims federated remote: screens, widgets, record tabs, and transaction composition. Assumed claims: loss advices, reserves, cash calls, recoveries, and commutations.
 
 ## Responsibilities
 

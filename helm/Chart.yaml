@@ -1,5 +1,5 @@
 apiVersion: v2
-name: eia-reinsurance-web
+name: eia-assumed-claims-web
 description: Federated front-end
 type: application
 version: 0.1.0

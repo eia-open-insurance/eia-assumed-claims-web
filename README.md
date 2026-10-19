@@ -21,6 +21,29 @@ Assumed Claims federated remote: screens, widgets, record tabs, and transaction 
 - Maintain README, CODEOWNERS, SECURITY, CHANGELOG, tests, and local verification.
 - Contain no business logic in shared libraries or front-end remotes.
 
+## Implemented slice
+
+- React 19 workbench exposed as Webpack 5 Module Federation remote `eia_assumed_claims`
+  (`./App`), served on port `3005`.
+- Async bootstrap (`src/index.jsx` imports `./bootstrap`) so React is resolved as a shared
+  singleton.
+- Every API request sends `X-EIA-Tenant` and `X-EIA-Book: ASSUMED`; the development server
+  proxies `/api` to `http://localhost:8090`.
+- Lists assumed claims, creates a claim through the domain service, and displays structured
+  validation errors returned by the domain.
+- `@swc/core` is pinned to exactly `1.10.7`.
+- One Playwright test mocks the API, verifies the workbench renders, and asserts the ASSUMED
+  book header is sent.
+
+## Local run
+
+```powershell
+npm install
+npm start        # http://localhost:3005
+npm run build
+npm test
+```
+
 ## Verification
 
 - Lint and format

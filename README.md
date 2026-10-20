@@ -88,13 +88,21 @@ Assumed Claims federated remote: screens, widgets, record tabs, and transaction 
   states stay card-local, Refresh re-reads the aggregate, and selecting another claim refetches
   it. A context note states that activity is event-derived and append-only while the assumed
   claim record remains the source of truth.
+- The Overview claim Payments card follows Documents and reads
+  `GET /api/v1/payments?sourceType=ASSUMED_CLAIM&sourceId=<claimId>` with `X-EIA-Tenant` and
+  `X-EIA-Book: ASSUMED`. It accepts a bare array or an `{items:[...]}` page; each row shows the
+  payment number linked to `/payment?record=<id>`, status, amount/currency, payee (`payeeName`,
+  falling back to `payeePartyId`), and created date, with total paid per currency and the pending
+  count. Loading, empty, and 503 error states stay card-local, and a context note records that
+  Payment owns approval and execution while the assumed claim holds the loss advice, cash calls,
+  and settlement position.
 - Money is rendered from the API's decimal strings; the UI never treats an amount as a float for
   submission (inputs are sent as decimal strings).
 - The canonical `ui.css` and `EntityPicker.jsx` are copied from the shell/ui-kit and loaded
   through `style-loader`/`css-loader`. A small scoped tab-hover guard preserves the shared
   transparent tab treatment against the global `main button:hover` normalization.
 - `@swc/core` is pinned to exactly `1.10.7`.
-- Forty-six Playwright tests mock the API statefully: the ASSUMED book wall and operational layout,
+- Fifty-two Playwright tests mock the API statefully: the ASSUMED book wall and operational layout,
   the register modal, loss-advice record/accept, reserve history with the derived current
   reserve, every workbench tab including audit, claim close, URL record discovery (queue and
   search projection), queue filtering (claim facts and assignment), predictive contract
@@ -102,9 +110,13 @@ Assumed Claims federated remote: screens, widgets, record tabs, and transaction 
   short-UUID fallback, diary tasks and notes, claim assignment (directory fetch/cache, person
   options with role and email hints, team filtering by person, displayName/team-code submission,
   prefill/default states, owner filtering, 409 reload-and-retry, and the directory-503
-  free-text/static-team fallback), and the event-derived Activity timeline (aggregate
+  free-text/static-team fallback), the event-derived Activity timeline (aggregate
   path/tenant header, newest-first rendering, card-local empty and 503 states, payload facts,
-  and selection refetch).
+  and selection refetch), the claim Payments card (the `ASSUMED_CLAIM` source query and
+  tenant/book headers, rows with linked payment numbers, payee and created date, paid/pending
+  summary, the `{items}` envelope, the empty state, a contained 503 that leaves the claim
+  rendered, the loading state before the payment response arrives, and refetch when another
+  claim is selected).
 
 ## Local run
 
@@ -117,7 +129,7 @@ npm test
 
 ## Verification
 
-- Playwright: `npx playwright test` (46 tests).
+- Playwright: `npx playwright test` (52 tests).
 - Production bundle: `npm run build`.
 - Contract tests
 - Security scan and SBOM

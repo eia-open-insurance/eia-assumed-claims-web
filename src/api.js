@@ -145,6 +145,21 @@ export const api = {
         )}`
       )
   },
+  payments: {
+    /**
+     * Payments whose source is one assumed claim. Payment is the financial
+     * system of record and owns approval and execution; the claim is only the
+     * `sourceId` stored on the payment. The response is a bare array or an
+     * `{items:[...]}` page, and the ASSUMED book wall stays on the read for
+     * the same reason every other domain read in this remote carries it.
+     */
+    listBySource: (sourceType, sourceId) =>
+      request(
+        `/api/v1/payments?sourceType=${encodeURIComponent(sourceType)}&sourceId=${encodeURIComponent(
+          sourceId
+        )}`
+      )
+  },
   notes: {
     list: (claimId) => request(`/claims/${encodeURIComponent(claimId)}/notes`),
     create: (claimId, body, key) => createNote(claimId, body, key)
@@ -161,6 +176,14 @@ export const api = {
       })
   }
 };
+
+export function money(amount, currency = 'USD') {
+  const value = Number(amount ?? 0);
+  return `${currency || 'USD'} ${value.toLocaleString('en-US', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2
+  })}`;
+}
 
 export function today() {
   return new Date().toISOString().slice(0, 10);

@@ -243,7 +243,7 @@
  */
 
 .eia-summary-grid {
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(6, minmax(0, 1fr));
 }
 
 /* Overdue diary rows are marked on the row, the due date, and the status cell. */

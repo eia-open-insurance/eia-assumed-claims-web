@@ -17,6 +17,9 @@
 - Record discovery via `?record=` / `?new=1` and `popstate`, with the assumed-claims search
   projection as the deep-link fallback.
 - Queue filter plus predictive assumed-contract lookup through the shared `EntityPicker`.
+- Claim assignment: owner line in the record header, `Assign` modal with adjuster, team, prefill,
+  and a versioned `PATCH .../assignment` (409 reload-and-retry), owner on every queue row and in
+  the queue filter, an "Assigned to" summary card, and a "Claim ownership" context panel.
 - Overview cross-links resolve the governing contract through
   `GET /api/v1/contracts/{contractId}` (ASSUMED book) and render
   `<contractNumber> · <contractType>` in the record header, Overview, "Why this matters"
@@ -25,4 +28,5 @@
   remain.
 - Playwright flows for the ASSUMED book wall and layout, register, loss-advice record/accept,
   reserve history, all tabs, close, URL entry, queue filtering, contract selection, contract
-  label resolution and fallback, and cross-links.
+  label resolution and fallback, cross-links, diary tasks and notes, and claim assignment
+  ownership, versioned PATCH, queue filters, and 409 reload-and-retry.

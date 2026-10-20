@@ -31,8 +31,8 @@ Assumed Claims federated remote: screens, widgets, record tabs, and transaction 
   proxies `/api` to `http://localhost:8090`.
 - Operational assumed-claim page built on the shared EIA design: `eia-page-head` with the
   `Claims · Assumed book` eyebrow and ASSUMED badge, a two-pane `eia-record-layout` register
-  and workbench panel, claim header actions, and a four-card `eia-summary-grid` (current
-  reserve, advised loss, recoveries, cash calls).
+  and workbench panel, claim header actions, and a six-card `eia-summary-grid` (assigned to,
+  current reserve, advised loss, recoveries, cash calls, open tasks).
 - `Register assumed claim` is a primary page action that opens a focused modal; the workbench
   no longer keeps an inline create form on the page.
 - Record discovery: `?record=<id>` selects the assumed claim (falling back to the common
@@ -40,8 +40,18 @@ Assumed Claims federated remote: screens, widgets, record tabs, and transaction 
   loaded queue), `?new=1` opens the register modal, and a `popstate` listener keeps the
   workbench in step with shell navigation. `src/navigation.js` pushes history, dispatches
   `PopStateEvent`, and falls back to `location.assign`.
-- The claim queue has a prominent client-side filter over claim number, cedent reference, and
-  status, with a live match count and a Clear action.
+- The claim queue has a prominent client-side filter over claim number, cedent reference,
+  status, assignee, and team (including the humanized team label and `Unassigned`), with a
+  live match count and a Clear action. Each queue row shows the current owner.
+- Claim assignment mirrors the Direct Claims ownership UX: the record header shows
+  `Assigned to <adjuster> · <team>` or `Unassigned`, the `Assign` action opens a modal
+  pre-filled with the current adjuster and team, and saving sends
+  `PATCH /api/v1/assumed-claims/claims/{claimId}/assignment` with `assignedAdjuster`,
+  `assignedTeam`, and the observed `expectedVersion` plus the optional `X-EIA-Actor` header.
+  The Overview adds an "Assigned to" summary card and a "Claim ownership" context panel.
+  A stale version is answered with 409: the modal keeps the typed values, shows the conflict,
+  and offers `Reload claim` so the next save uses the refreshed version; a successful assign
+  reloads the queue and claim detail (including the assignment audit entry).
 - The register form uses the shared `EntityPicker` against
   `/api/v1/contracts/search` with `X-EIA-Book: ASSUMED`; the selected contract shows its
   number and type and links to `/contract?record=<id>`, and the contract id is posted with
@@ -63,11 +73,13 @@ Assumed Claims federated remote: screens, widgets, record tabs, and transaction 
   through `style-loader`/`css-loader`. A small scoped tab-hover guard preserves the shared
   transparent tab treatment against the global `main button:hover` normalization.
 - `@swc/core` is pinned to exactly `1.10.7`.
-- Thirteen Playwright tests mock the API statefully: the ASSUMED book wall and operational layout,
+- Thirty-one Playwright tests mock the API statefully: the ASSUMED book wall and operational layout,
   the register modal, loss-advice record/accept, reserve history with the derived current
   reserve, every workbench tab including audit, claim close, URL record discovery (queue and
-  search projection), queue filtering, predictive contract selection and payload, and the
-  Overview cross-links including contract-label resolution and its short-UUID fallback.
+  search projection), queue filtering (claim facts and assignment), predictive contract
+  selection and payload, the Overview cross-links including contract-label resolution and its
+  short-UUID fallback, diary tasks and notes, and claim assignment (header/queue/summary
+  ownership, prefill and versioned PATCH, owner filtering, and 409 reload-and-retry).
 
 ## Local run
 
@@ -80,7 +92,7 @@ npm test
 
 ## Verification
 
-- Playwright: `npx playwright test` (11 tests).
+- Playwright: `npx playwright test` (31 tests).
 - Production bundle: `npm run build`.
 - Contract tests
 - Security scan and SBOM

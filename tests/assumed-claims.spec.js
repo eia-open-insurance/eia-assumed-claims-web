@@ -663,7 +663,7 @@ test('resolves a deep link through the assumed claims search projection', async 
   expect(state.searches[0].headers['x-eia-tenant']).toBe(TENANT);
 });
 
-test('filters the assumed claim queue by claim number, cedent reference, or status', async ({ page }) => {
+test('filters the assumed claim queue by claim number, cedent reference, status, or owner', async ({ page }) => {
   const state = await installWorkspaceMock(page);
   state.claims = [
     CLAIM,
@@ -677,10 +677,12 @@ test('filters the assumed claim queue by claim number, cedent reference, or stat
   ];
 
   await page.goto('/');
-  const filter = page.getByRole('searchbox', { name: 'Filter assumed claims' });
+  const filter = page.getByRole('searchbox', {
+    name: 'Filter assumed claims by number, cedent reference, status, assignee, or team'
+  });
   await expect(filter).toHaveAttribute(
     'placeholder',
-    'Filter assumed claims by claim number, cedent reference, or status…'
+    'Filter assumed claims by number, cedent reference, status, assignee, or team…'
   );
 
   await filter.fill('CED-779');

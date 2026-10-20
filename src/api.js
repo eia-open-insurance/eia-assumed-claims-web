@@ -96,6 +96,20 @@ export function createNote(claimId, body, key) {
 }
 
 export const api = {
+  claims: {
+    get: (claimId) => request(`/claims/${encodeURIComponent(claimId)}`),
+    /**
+     * Change operational ownership only. `expectedVersion` is the claim version
+     * the caller read; the expert rejects a stale version with 409 rather than
+     * overwriting a concurrent reassignment.
+     */
+    assign: (claimId, body, actor) =>
+      request(`/claims/${encodeURIComponent(claimId)}/assignment`, {
+        method: 'PATCH',
+        body: JSON.stringify(body),
+        headers: actor ? { 'X-EIA-Actor': actor } : {}
+      })
+  },
   tasks: {
     list: (claimId) => request(`/claims/${encodeURIComponent(claimId)}/tasks`),
     create: (claimId, body, key) => createTask(claimId, body, key),

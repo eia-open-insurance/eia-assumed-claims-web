@@ -17,6 +17,8 @@ The format is based on Keep a Changelog and the project uses Semantic Versioning
 - Overview cross-links: governing contract, cedent reference, a "Why this matters" panel covering coverage, cessions/recoveries, and SAP FS-RI as the system of record, plus related retrocessions fetched by contract id.
 - Cross-link transparency: the selected claim resolves its governing contract through `GET /api/v1/contracts/{contractId}` on the ASSUMED book and renders `<contractNumber> · <contractType>` in the header, Overview, context panel, and related records. The short UUID stays visible while the lookup loads or fails, so record rendering is never blocked.
 - Five additional Playwright tests cover URL entry/popstate, search-projection record discovery, queue filtering, contract-picker selection and post payload, and the Overview cross-links (13 total, including contract-label resolution and fallback).
+- Claim assignment mirroring Direct Claims: header ownership (`Assigned to <adjuster> · <team>` or `Unassigned`), an `Assign` modal with adjuster text, team select, prefill, and `PATCH /api/v1/assumed-claims/claims/{claimId}/assignment` carrying `expectedVersion` and `X-EIA-Actor`, assignee/team queue rows and search, an `Assigned to` summary card, and a "Claim ownership" context panel. A stale 409 keeps the typed values, explains the conflict, and offers `Reload claim` before the retry.
+- Four Playwright assignment tests cover ownership across the header/queue/summary/context panel, the versioned PATCH payload and prefill, assignee/team queue filtering, and the 409 reload-and-retry path (31 tests total).
 
 ### Changed
 

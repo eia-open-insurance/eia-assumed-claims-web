@@ -1,5 +1,12 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { ApiError, BOOK, api, request } from './api.js';
+import AssignmentDialog, {
+  assignmentFilterValues,
+  assignmentText,
+  ownershipNote,
+  readAssignment,
+  teamLabel
+} from './ClaimAssignment.jsx';
 import ClaimProgress from './ClaimProgress.jsx';
 import DiaryNotesTab from './DiaryNotesTab.jsx';
 import EntityPicker from './EntityPicker.jsx';
@@ -148,9 +155,13 @@ function pushRoute(patch = {}) {
 
 function matchesQueueFilter(claim, needle) {
   if (!needle) return true;
-  return [claim.assumedClaimNumber, claim.cedentClaimNumber, claim.status]
-    .some((value) => value !== null && value !== undefined
-      && String(value).toLowerCase().includes(needle));
+  return [
+    claim.assumedClaimNumber,
+    claim.cedentClaimNumber,
+    claim.status,
+    ...assignmentFilterValues(claim)
+  ].some((value) => value !== null && value !== undefined
+    && String(value).toLowerCase().includes(needle));
 }
 
 function contractTypeOf(item) {
@@ -201,6 +212,8 @@ export default function App() {
   const [selectedId, setSelectedId] = useState(null);
   const [tab, setTab] = useState('overview');
   const [registerOpen, setRegisterOpen] = useState(() => readRoute().isNew);
+  const [assignOpen, setAssignOpen] = useState(false);
+  const [notice, setNotice] = useState('');
   const [contractPick, setContractPick] = useState(null);
   const [queueFilter, setQueueFilter] = useState('');
   const [relatedRetrocessions, setRelatedRetrocessions] = useState([]);
@@ -219,6 +232,7 @@ export default function App() {
   const openRecordRef = useRef(null);
 
   const selectedClaim = claims.find((claim) => claim.id === selectedId) || null;
+  const selectedAssignment = assignmentText(selectedClaim);
   const currency = resources.financials?.currency || selectedClaim?.reserveCurrency || 'USD';
   const nextStatuses = selectedClaim ? NEXT_STATUSES[selectedClaim.status] || [] : [];
   const queueNeedle = queueFilter.trim().toLowerCase();
@@ -301,6 +315,78 @@ export default function App() {
     return claim;
   }
 
+  /** Replaces a claim in place so an assignment refresh never reorders the queue. */
+  function upsertClaim(claim) {
+    if (!claim?.id) return null;
+    const exists = claimsRef.current.some((entry) => entry.id === claim.id);
+    const next = exists
+      ? claimsRef.current.map((entry) => (entry.id === claim.id ? { ...entry, ...claim } : entry))
+      : [claim, ...claimsRef.current];
+    claimsRef.current = next;
+    setClaims(next);
+    return claim;
+  }
+
+  /**
+   * Committed assignment. The server answer is applied immediately, then the
+   * queue and the claim detail (including the audit trail entry) are reloaded
+   * so every surface shows the same owner and version.
+   */
+  async function handleAssigned(updated, submitted) {
+    if (!selectedClaim) return;
+    const claimId = selectedClaim.id;
+    const claimNumber = selectedClaim.assumedClaimNumber;
+    setAssignOpen(false);
+    setError('');
+    setNotice(`${claimNumber || 'Claim'} assigned to ${assignmentText(submitted).display}.`);
+
+    const server = readAssignment(updated);
+    upsertClaim({
+      ...(updated?.id ? updated : {}),
+      id: claimId,
+      assumedClaimNumber: updated?.assumedClaimNumber || claimNumber,
+      assignedAdjuster: server.assignedAdjuster || submitted.assignedAdjuster,
+      assignedTeam: server.assignedTeam || submitted.assignedTeam
+    });
+
+    try {
+      await loadClaims();
+      const fresh = await api.claims.get(claimId);
+      if (fresh?.id) upsertClaim(fresh);
+      await loadWorkspace(claimId);
+    } catch (cause) {
+      setError(`Assignment saved, but the claim record could not be refreshed: ${cause.message}`);
+    }
+  }
+
+  /** Loads the queue and claim detail again so a stale dialog can retry. */
+  async function reloadClaimRecord(claimId) {
+    const rows = await loadClaims();
+    let fresh = null;
+    let detailError = null;
+    try {
+      fresh = await api.claims.get(claimId);
+    } catch (cause) {
+      detailError = cause;
+    }
+    const fallback = Array.isArray(rows) ? rows.find((row) => row.id === claimId) : null;
+    const resolved = fresh?.id ? fresh : fallback;
+    if (resolved) upsertClaim(resolved);
+    if (!resolved && detailError) throw detailError;
+    return resolved;
+  }
+
+  function openAssignment() {
+    if (!selectedClaim) return;
+    setError('');
+    setNotice('');
+    setAssignOpen(true);
+  }
+
+  function closeAssignment() {
+    setAssignOpen(false);
+  }
+
   /**
    * Record discovery for a `?record=` deep link that is not in the loaded queue.
    * The assumed-claims search projection resolves the id, then the canonical
@@ -331,6 +417,7 @@ export default function App() {
     setSelectedId(claim.id);
     setTab('overview');
     setError('');
+    setNotice('');
     setStatusTarget('');
     setResources(EMPTY_RESOURCES);
     loadWorkspace(claim.id).catch((cause) => setError(cause.message));
@@ -510,6 +597,7 @@ export default function App() {
 
   async function refreshWorkspace() {
     setError('');
+    setNotice('');
     try {
       await reloadClaimsAndWorkspace();
       refreshDiarySummary();
@@ -815,6 +903,16 @@ export default function App() {
               </a>
             </div>
           )}
+        </div>
+
+        <div className="eia-context-panel" aria-label="Claim ownership" data-testid="ownership-note">
+          <h4>Claim ownership</h4>
+          <p>
+            {ownershipNote(
+              selectedClaim,
+              selectedClaim.assignedAt ? formatTimestamp(selectedClaim.assignedAt) : ''
+            )}
+          </p>
         </div>
 
         <div className="eia-section-title">
@@ -1379,6 +1477,10 @@ export default function App() {
         <p role="alert" style={{ margin: '0 0 14px' }}>{error}</p>
       )}
 
+      {notice && !registerOpen && !assignOpen && (
+        <p role="status" style={{ margin: '0 0 14px' }}>{notice}</p>
+      )}
+
       <div className="eia-record-layout">
         <aside className="eia-record-list" aria-label="Assumed claim register">
           <div className="eia-record-list-head">
@@ -1396,8 +1498,8 @@ export default function App() {
               type="search"
               value={queueFilter}
               onChange={(event) => setQueueFilter(event.target.value)}
-              placeholder="Filter assumed claims by claim number, cedent reference, or status…"
-              aria-label="Filter assumed claims"
+              placeholder="Filter assumed claims by number, cedent reference, status, assignee, or team…"
+              aria-label="Filter assumed claims by number, cedent reference, status, assignee, or team"
               autoComplete="off"
             />
             {queueFilter && (
@@ -1419,20 +1521,26 @@ export default function App() {
               No assumed claims match “{queueFilter.trim()}”.
             </div>
           )}
-          {!loading && filteredClaims.map((claim) => (
-            <button
-              key={claim.id}
-              type="button"
-              className={selectedId === claim.id ? 'selected' : ''}
-              aria-label={`Open ${claim.assumedClaimNumber}`}
-              aria-pressed={selectedId === claim.id}
-              onClick={() => selectClaim(claim)}
-            >
-              <span className="record-primary">{claim.assumedClaimNumber}</span>
-              <span className="record-secondary">Cedent claim {claim.cedentClaimNumber || '—'}</span>
-              <span><StatusPill status={claim.status} /></span>
-            </button>
-          ))}
+          {!loading && filteredClaims.map((claim) => {
+            const owner = assignmentText(claim);
+            return (
+              <button
+                key={claim.id}
+                type="button"
+                className={selectedId === claim.id ? 'selected' : ''}
+                aria-label={`Open ${claim.assumedClaimNumber}`}
+                aria-pressed={selectedId === claim.id}
+                onClick={() => selectClaim(claim)}
+              >
+                <span className="record-primary">{claim.assumedClaimNumber}</span>
+                <span className="record-secondary">Cedent claim {claim.cedentClaimNumber || '—'}</span>
+                <span className="record-secondary" data-testid="queue-assignee">
+                  {owner.assignedAdjuster ? `Assigned to ${owner.display}` : 'Unassigned'}
+                </span>
+                <span><StatusPill status={claim.status} /></span>
+              </button>
+            );
+          })}
         </aside>
 
         <section className="eia-record-panel" aria-label="Assumed claim workbench" aria-busy={workspaceLoading}>
@@ -1463,8 +1571,25 @@ export default function App() {
                     ) : shortId(selectedClaim.contractId)}
                     {' '}· Version {selectedClaim.version}
                   </p>
+                  <p className="eia-record-subtitle" data-testid="record-assignment">
+                    {selectedAssignment.assignedAdjuster ? (
+                      <>
+                        Assigned to <strong>{selectedAssignment.assignedAdjuster}</strong>
+                        {selectedAssignment.assignedTeam
+                          ? ` · ${teamLabel(selectedAssignment.assignedTeam)}`
+                          : ''}
+                      </>
+                    ) : (
+                      'Unassigned'
+                    )}
+                  </p>
                 </div>
-                <StatusPill status={selectedClaim.status} />
+                <div className="eia-actions">
+                  <button type="button" className="eia-btn-secondary" onClick={openAssignment}>
+                    Assign
+                  </button>
+                  <StatusPill status={selectedClaim.status} />
+                </div>
               </div>
 
               <form className="eia-toolbar" aria-label="Change claim status" onSubmit={applyStatus}>
@@ -1492,6 +1617,19 @@ export default function App() {
               </form>
 
               <div className="eia-summary-grid">
+                <div className="eia-card">
+                  <h3>Assigned to</h3>
+                  <div className="value" data-testid="summary-assigned-to">
+                    {selectedAssignment.assignedAdjuster || 'Unassigned'}
+                  </div>
+                  <div className="eia-metric-label">
+                    {selectedAssignment.assignedAdjuster
+                      ? (selectedAssignment.assignedTeam
+                        ? teamLabel(selectedAssignment.assignedTeam)
+                        : 'No team assigned')
+                      : 'Ownership queue'}
+                  </div>
+                </div>
                 <div className="eia-card">
                   <h3>Current reserve</h3>
                   <div className="value">{formatMoney(resources.financials?.cededReserveAmount, currency)}</div>
@@ -1553,6 +1691,15 @@ export default function App() {
           )}
         </section>
       </div>
+
+      {assignOpen && selectedClaim && (
+        <AssignmentDialog
+          claim={selectedClaim}
+          onClose={closeAssignment}
+          onAssigned={handleAssigned}
+          onReload={() => reloadClaimRecord(selectedClaim.id)}
+        />
+      )}
 
       {registerOpen && (
         <div

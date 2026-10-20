@@ -10,6 +10,9 @@
 
 ## Implemented
 
-- Claim register/create plus workbench tabs for loss advice, reserve history, cash calls,
-  recoveries, commutation, and disputes.
-- Playwright flows for the ASSUMED header, loss-advice record/accept, and reserve history.
+- Operational assumed-claim page using the shared EIA design classes: page head and ASSUMED
+  badge, two-pane record register/workbench, claim header, summary grid, and tabs for overview,
+  loss advice, reserve history, cash calls, recoveries, commutation, disputes, and audit.
+- Claim register/create moved into a modal action; close-claim and audit endpoints are wired.
+- Playwright flows for the ASSUMED book wall and layout, register, loss-advice record/accept,
+  reserve history, all tabs, and close.

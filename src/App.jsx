@@ -1,4 +1,6 @@
 import React, { useEffect, useState } from 'react';
+import './ui.css';
+import './tabs.css';
 
 const TENANT = '11111111-1111-7111-8111-111111111111';
 const BOOK = 'ASSUMED';
@@ -13,12 +15,35 @@ const EMPTY_CLAIM_FORM = {
   reserveCurrency: 'USD'
 };
 
+const EMPTY_RESOURCES = {
+  advices: [],
+  bordereaux: [],
+  reserves: [],
+  cashCalls: [],
+  recoveries: [],
+  disputes: [],
+  audits: [],
+  commutation: null,
+  financials: null
+};
+
 const BASE_HEADERS = {
   'X-EIA-Tenant': TENANT,
   'X-EIA-Book': BOOK
 };
 
 const TODAY = new Date().toISOString().slice(0, 10);
+
+const TABS = [
+  { id: 'overview', label: 'Overview' },
+  { id: 'advices', label: 'Loss Advice' },
+  { id: 'reserves', label: 'Reserve History' },
+  { id: 'cash', label: 'Cash Calls' },
+  { id: 'recoveries', label: 'Recoveries' },
+  { id: 'commutation', label: 'Commutation' },
+  { id: 'disputes', label: 'Disputes' },
+  { id: 'audit', label: 'Audit' }
+];
 
 const NEXT_STATUSES = {
   NOTIFIED: ['OPEN'],
@@ -34,6 +59,34 @@ const NEXT_STATUSES = {
   DENIED: ['CLOSED'],
   WITHDRAWN: ['CLOSED']
 };
+
+const MODAL_BACKDROP = {
+  position: 'fixed',
+  inset: 0,
+  zIndex: 1000,
+  display: 'grid',
+  placeItems: 'center',
+  padding: 20,
+  background: 'rgba(11, 46, 79, 0.45)'
+};
+
+const MODAL_CARD = {
+  width: 'min(780px, 100%)',
+  maxHeight: '90vh',
+  overflow: 'auto',
+  background: '#fff',
+  border: '1px solid var(--eia-line)',
+  borderRadius: 10,
+  padding: 20,
+  boxShadow: '0 24px 60px rgba(11, 46, 79, 0.28)'
+};
+
+function statusTone(status) {
+  if (['CLOSED', 'COMMUTED', 'PAID'].includes(status)) return 'green';
+  if (['DENIED', 'WITHDRAWN', 'DISPUTED'].includes(status)) return 'red';
+  if (['SETTLED', 'PAYMENT_PENDING', 'REOPENED'].includes(status)) return 'amber';
+  return 'blue';
+}
 
 class ApiError extends Error {
   constructor(message, status) {
@@ -81,6 +134,10 @@ async function optional(path) {
   }
 }
 
+function asList(value) {
+  return Array.isArray(value) ? value : [];
+}
+
 function formatMoney(amount, currency) {
   if (amount === null || amount === undefined) {
     return '—';
@@ -95,56 +152,64 @@ function formatMoney(amount, currency) {
   }
 }
 
-function Field({ label, children }) {
+function formatTimestamp(value) {
+  if (!value) return '—';
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return String(value);
+  return parsed.toLocaleString('en-US', {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit'
+  });
+}
+
+function shortId(value) {
+  return value ? String(value).slice(0, 8) : '—';
+}
+
+function StatusPill({ status }) {
+  return <span className={`eia-pill ${statusTone(status)}`}>{status}</span>;
+}
+
+function Field({ label, children, span }) {
+  const className = span ? `eia-field span-${span}` : 'eia-field';
   return (
-    <label style={{ display: 'grid', gap: 4, fontSize: 13 }}>
-      {label}
+    <label className={className}>
+      <span>{label}</span>
       {children}
     </label>
   );
 }
 
-function TabButton({ id, active, onClick, children }) {
+function DataTable({ columns, rows = [], empty, rowKey, label }) {
   return (
-    <button
-      role="tab"
-      aria-selected={active}
-      onClick={onClick}
-      style={{
-        padding: '8px 12px',
-        border: '1px solid #c9d3e3',
-        borderBottom: active ? '2px solid #214a8a' : '1px solid #c9d3e3',
-        background: active ? '#eef4ff' : '#fff',
-        fontWeight: active ? 600 : 400,
-        cursor: 'pointer'
-      }}
-    >
-      {children}
-    </button>
-  );
-}
-
-function DataTable({ columns, rows, empty, rowKey }) {
-  return (
-    <table width="100%" cellPadding="6" style={{ borderCollapse: 'collapse', fontSize: 13 }}>
-      <thead>
-        <tr style={{ textAlign: 'left', borderBottom: '2px solid #ccc' }}>
-          {columns.map((column) => <th key={column.key} align={column.align || 'left'}>{column.label}</th>)}
-        </tr>
-      </thead>
-      <tbody>
-        {rows.length === 0 && (
-          <tr><td colSpan={columns.length} style={{ color: '#666' }}>{empty}</td></tr>
-        )}
-        {rows.map((row, index) => (
-          <tr key={rowKey ? rowKey(row) : index} style={{ borderTop: '1px solid #ddd' }}>
-            {columns.map((column) => (
-              <td key={column.key} align={column.align || 'left'}>{column.render(row)}</td>
+    <div className="eia-table-wrap">
+      <table className="eia-table" aria-label={label}>
+        <thead>
+          <tr>
+            {columns.map((item) => (
+              <th key={item.key} align={item.align || 'left'}>{item.label}</th>
             ))}
           </tr>
-        ))}
-      </tbody>
-    </table>
+        </thead>
+        <tbody>
+          {rows.length === 0 && (
+            <tr>
+              <td colSpan={columns.length} className="eia-muted">{empty}</td>
+            </tr>
+          )}
+          {rows.map((row, index) => (
+            <tr key={rowKey ? rowKey(row) : index}>
+              {columns.map((item) => (
+                <td key={item.key} align={item.align || 'left'}>{item.render(row)}</td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   );
 }
 
@@ -154,18 +219,17 @@ export default function App() {
   const [claims, setClaims] = useState([]);
   const [claimForm, setClaimForm] = useState(EMPTY_CLAIM_FORM);
   const [selectedId, setSelectedId] = useState(null);
-  const [tab, setTab] = useState('advices');
-  const [resources, setResources] = useState({
-    advices: [], bordereaux: [], reserves: [], cashCalls: [], recoveries: [],
-    disputes: [], commutation: null, financials: null
-  });
+  const [tab, setTab] = useState('overview');
+  const [registerOpen, setRegisterOpen] = useState(false);
+  const [resources, setResources] = useState(EMPTY_RESOURCES);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
   const [workspaceLoading, setWorkspaceLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
   const selectedClaim = claims.find((claim) => claim.id === selectedId) || null;
-  const currency = selectedClaim?.reserveCurrency || 'USD';
+  const currency = resources.financials?.currency || selectedClaim?.reserveCurrency || 'USD';
+  const nextStatuses = selectedClaim ? NEXT_STATUSES[selectedClaim.status] || [] : [];
 
   const [adviceForm, setAdviceForm] = useState({
     adviceNumber: '', adviceType: 'INITIAL_NOTICE', adviceDate: TODAY,
@@ -185,34 +249,38 @@ export default function App() {
   const [disputeForm, setDisputeForm] = useState({ disputeType: 'QUANTUM', reason: '', contestedAmount: '100000.00' });
   const [statusTarget, setStatusTarget] = useState('');
 
-  async function load() {
+  async function loadClaims() {
     const body = await request('/claims');
-    setClaims(Array.isArray(body) ? body : []);
+    const list = asList(body);
+    setClaims(list);
+    return list;
   }
 
   async function loadWorkspace(id) {
     setWorkspaceLoading(true);
     try {
       const encoded = encodeURIComponent(id);
-      const [advices, bordereaux, reserves, cashCalls, recoveries, disputes, financials, commutation] = await Promise.all([
+      const [advices, bordereaux, reserves, cashCalls, recoveries, disputes, audits, financials, commutation] = await Promise.all([
         request(`/claims/${encoded}/advices`),
         request(`/claims/${encoded}/bordereaux`),
         request(`/claims/${encoded}/reserves`),
         request(`/claims/${encoded}/cash-calls`),
         request(`/claims/${encoded}/recoveries`),
         request(`/claims/${encoded}/disputes`),
+        request(`/claims/${encoded}/audit`),
         request(`/claims/${encoded}/financials`),
         optional(`/claims/${encoded}/commutation`)
       ]);
       setResources({
-        advices: advices || [],
-        bordereaux: bordereaux || [],
-        reserves: reserves || [],
-        cashCalls: cashCalls || [],
-        recoveries: recoveries || [],
-        disputes: disputes || [],
-        financials,
-        commutation
+        advices: asList(advices),
+        bordereaux: asList(bordereaux),
+        reserves: asList(reserves),
+        cashCalls: asList(cashCalls),
+        recoveries: asList(recoveries),
+        disputes: asList(disputes),
+        audits: asList(audits),
+        financials: financials || null,
+        commutation: commutation || null
       });
     } finally {
       setWorkspaceLoading(false);
@@ -220,13 +288,66 @@ export default function App() {
   }
 
   useEffect(() => {
-    load()
-      .catch((cause) => setError(cause.message))
-      .finally(() => setLoading(false));
+    let alive = true;
+    async function bootstrap() {
+      try {
+        const list = await loadClaims();
+        if (!alive || list.length === 0) return;
+        setSelectedId(list[0].id);
+        await loadWorkspace(list[0].id);
+      } catch (cause) {
+        if (alive) setError(cause.message);
+      } finally {
+        if (alive) setLoading(false);
+      }
+    }
+    bootstrap();
+    return () => { alive = false; };
   }, []);
+
+  useEffect(() => {
+    if (!registerOpen) return undefined;
+    const closeOnEscape = (event) => {
+      if (event.key === 'Escape') setRegisterOpen(false);
+    };
+    window.addEventListener('keydown', closeOnEscape);
+    return () => window.removeEventListener('keydown', closeOnEscape);
+  }, [registerOpen]);
 
   function update(setter, field) {
     return (event) => setter((current) => ({ ...current, [field]: event.target.value }));
+  }
+
+  async function reloadClaimsAndWorkspace() {
+    const list = await loadClaims();
+    const stillSelected = selectedId && list.some((claim) => claim.id === selectedId);
+    if (stillSelected) {
+      await loadWorkspace(selectedId);
+      return;
+    }
+    if (list.length > 0) {
+      setSelectedId(list[0].id);
+      setTab('overview');
+      await loadWorkspace(list[0].id);
+      return;
+    }
+    setSelectedId(null);
+    setResources(EMPTY_RESOURCES);
+  }
+
+  async function refreshWorkspace() {
+    setError('');
+    try {
+      await reloadClaimsAndWorkspace();
+    } catch (cause) {
+      setError(cause.message);
+    }
+  }
+
+  function openRegister() {
+    setClaimForm((current) => ({ ...EMPTY_CLAIM_FORM, contractId: current.contractId }));
+    setError('');
+    setRegisterOpen(true);
   }
 
   async function submitClaim(event) {
@@ -234,7 +355,7 @@ export default function App() {
     setError('');
     setSubmitting(true);
     try {
-      await request('/claims', {
+      const created = await request('/claims', {
         method: 'POST',
         body: JSON.stringify({
           ...claimForm,
@@ -245,7 +366,13 @@ export default function App() {
         })
       });
       setClaimForm((current) => ({ ...EMPTY_CLAIM_FORM, contractId: current.contractId }));
-      await load();
+      setRegisterOpen(false);
+      await loadClaims();
+      if (created?.id) {
+        setSelectedId(created.id);
+        setTab('overview');
+        await loadWorkspace(created.id);
+      }
     } catch (cause) {
       setError(cause.message);
     } finally {
@@ -255,9 +382,10 @@ export default function App() {
 
   async function selectClaim(claim) {
     setSelectedId(claim.id);
-    setTab('advices');
+    setTab('overview');
     setError('');
     setStatusTarget('');
+    setResources(EMPTY_RESOURCES);
     try {
       await loadWorkspace(claim.id);
     } catch (cause) {
@@ -265,17 +393,12 @@ export default function App() {
     }
   }
 
-  async function refreshWorkspace() {
-    if (!selectedId) return;
-    await Promise.all([load(), loadWorkspace(selectedId)]);
-  }
-
   async function mutate(path, body, method = 'POST') {
     setError('');
     setSubmitting(true);
     try {
       await request(path, { method, body: body === undefined ? undefined : JSON.stringify(body) });
-      await refreshWorkspace();
+      await reloadClaimsAndWorkspace();
       return true;
     } catch (cause) {
       setError(cause.message);
@@ -416,421 +539,742 @@ export default function App() {
     }
   }
 
-  const nextStatuses = selectedClaim ? NEXT_STATUSES[selectedClaim.status] || [] : [];
+  async function closeClaim() {
+    if (!selectedClaim) return;
+    if (await mutate(`/claims/${selectedClaim.id}/close`)) {
+      setStatusTarget('');
+      setTab('overview');
+    }
+  }
 
-  return (
-    <main style={{ fontFamily: 'system-ui, sans-serif', padding: 24, maxWidth: 1240, margin: '0 auto' }}>
-      <h1 style={{ marginBottom: 4 }}>Assumed Claims</h1>
-      <p style={{ marginTop: 0, color: '#4a4a4a' }}>
-        Reinsurance claims for the ASSUMED book only. Advices, reserves, cash calls, recoveries,
-        commutations, and disputes are handled here.
-      </p>
-      <p role="note" style={{ background: '#eef4ff', border: '1px solid #c9d9f7', borderRadius: 6, padding: '8px 12px', color: '#213a63' }}>
-        Book scope: <strong>ASSUMED</strong> · Tenant: {TENANT}
-      </p>
+  function renderOverview() {
+    return (
+      <>
+        <div className="eia-section-title">
+          <h2>Claim details</h2>
+          <span className="eia-badge">Version {selectedClaim.version}</span>
+        </div>
+        <div className="eia-card">
+          <dl className="eia-kv">
+            <dt>Assumed claim</dt>
+            <dd className="eia-mono">{selectedClaim.assumedClaimNumber}</dd>
+            <dt>Cedent claim</dt>
+            <dd>{selectedClaim.cedentClaimNumber || '—'}</dd>
+            <dt>Status</dt>
+            <dd><StatusPill status={selectedClaim.status} /></dd>
+            <dt>Contract</dt>
+            <dd className="eia-mono" title={selectedClaim.contractId}>{selectedClaim.contractId || '—'}</dd>
+            <dt>Loss date</dt>
+            <dd>{selectedClaim.lossDate || '—'}</dd>
+            <dt>Report date</dt>
+            <dd>{selectedClaim.reportDate || '—'}</dd>
+            <dt>Initial advised reserve</dt>
+            <dd>{formatMoney(selectedClaim.reserveAmount, selectedClaim.reserveCurrency)}</dd>
+            <dt>Reserve currency</dt>
+            <dd>{selectedClaim.reserveCurrency || '—'}</dd>
+            <dt>Last advice</dt>
+            <dd>{formatTimestamp(resources.financials?.lastAdviceAt)}</dd>
+          </dl>
+        </div>
 
-      {error && (
-        <p role="alert" style={{ color: '#b00020', background: '#fdecef', padding: '8px 12px', borderRadius: 6 }}>
-          {error}
-        </p>
-      )}
+        <div className="eia-section-title">
+          <h2>Financial summary</h2>
+          <span className="eia-muted">{currency}</span>
+        </div>
+        <div className="eia-card">
+          <dl className="eia-kv">
+            <dt>Ceded paid</dt>
+            <dd>{formatMoney(resources.financials?.cededPaidAmount, currency)}</dd>
+            <dt>Ceded outstanding</dt>
+            <dd>{formatMoney(resources.financials?.cededOutstandingAmount, currency)}</dd>
+            <dt>Ceded reserve</dt>
+            <dd>{formatMoney(resources.financials?.cededReserveAmount, currency)}</dd>
+            <dt>IBNR</dt>
+            <dd>{formatMoney(resources.financials?.cededIbnrAmount, currency)}</dd>
+            <dt>Ceded incurred</dt>
+            <dd>{formatMoney(resources.financials?.cededIncurredAmount, currency)}</dd>
+            <dt>Ceded recovery</dt>
+            <dd>{formatMoney(resources.financials?.cededRecoveryAmount, currency)}</dd>
+            <dt>Net ceded</dt>
+            <dd>{formatMoney(resources.financials?.netCededAmount, currency)}</dd>
+            <dt>Advised loss</dt>
+            <dd>{formatMoney(resources.financials?.advisedLossAmount, currency)}</dd>
+          </dl>
+        </div>
+      </>
+    );
+  }
 
-      <section aria-labelledby="create-heading" style={{ margin: '24px 0' }}>
-        <h2 id="create-heading" style={{ fontSize: 18 }}>Create assumed claim</h2>
-        <form onSubmit={submitClaim} style={{ display: 'grid', gap: 10, gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))' }}>
-          <Field label="Contract ID">
-            <input value={claimForm.contractId} onChange={update(setClaimForm, 'contractId')} required />
+  function renderAdvices() {
+    return (
+      <>
+        <div className="eia-section-title">
+          <h2>Loss advice history</h2>
+          <span className="eia-muted">{resources.advices.length} advice{resources.advices.length === 1 ? '' : 's'}</span>
+        </div>
+        <DataTable
+          label="Loss advice history"
+          columns={[
+            column('number', 'Advice', (advice) => advice.adviceNumber),
+            column('type', 'Type', (advice) => advice.adviceType),
+            column('date', 'Advice date', (advice) => advice.adviceDate || '—'),
+            column('reported', 'Reported', (advice) => formatMoney(advice.reportedAmount, advice.currency), 'right'),
+            column('status', 'Status', (advice) => <StatusPill status={advice.status} />),
+            column('action', 'Action', (advice) => advice.status === 'RECEIVED' ? (
+              <button
+                type="button"
+                className="eia-btn-secondary"
+                onClick={() => mutate(`/claims/${selectedClaim.id}/advices/${advice.id}/accept`, {})}
+                disabled={submitting}
+                aria-label={`Accept ${advice.adviceNumber}`}
+              >
+                Accept
+              </button>
+            ) : '—')
+          ]}
+          rows={resources.advices}
+          empty="No loss advices recorded."
+          rowKey={(advice) => advice.id}
+        />
+
+        <div className="eia-section-title">
+          <h2>Record loss advice</h2>
+        </div>
+        <form aria-label="Record loss advice" className="eia-form-grid" onSubmit={recordAdvice}>
+          <Field label="Advice number">
+            <input value={adviceForm.adviceNumber} onChange={update(setAdviceForm, 'adviceNumber')} placeholder="ADV-001" required />
           </Field>
-          <Field label="Cedent claim number">
-            <input value={claimForm.cedentClaimNumber} onChange={update(setClaimForm, 'cedentClaimNumber')} placeholder="CED-778" />
-          </Field>
-          <Field label="Loss date">
-            <input type="date" value={claimForm.lossDate} onChange={update(setClaimForm, 'lossDate')} />
-          </Field>
-          <Field label="Report date">
-            <input type="date" value={claimForm.reportDate} onChange={update(setClaimForm, 'reportDate')} />
-          </Field>
-          <Field label="Reserve amount">
-            <input type="number" min="0" step="0.01" value={claimForm.reserveAmount} onChange={update(setClaimForm, 'reserveAmount')} required />
-          </Field>
-          <Field label="Reserve currency">
-            <select value={claimForm.reserveCurrency} onChange={update(setClaimForm, 'reserveCurrency')}>
-              <option value="USD">USD</option>
-              <option value="EUR">EUR</option>
-              <option value="GBP">GBP</option>
+          <Field label="Advice type">
+            <select value={adviceForm.adviceType} onChange={update(setAdviceForm, 'adviceType')}>
+              <option value="INITIAL_NOTICE">INITIAL_NOTICE</option>
+              <option value="RESERVE_CHANGE">RESERVE_CHANGE</option>
+              <option value="PAYMENT">PAYMENT</option>
+              <option value="RECOVERY">RECOVERY</option>
+              <option value="UPDATE">UPDATE</option>
+              <option value="CLOSE">CLOSE</option>
             </select>
           </Field>
-          <button type="submit" disabled={submitting} style={{ alignSelf: 'end', padding: '8px 14px' }}>
-            {submitting ? 'Creating…' : 'Create assumed claim'}
-          </button>
-        </form>
-      </section>
-
-      <section aria-labelledby="register-heading">
-        <h2 id="register-heading" style={{ fontSize: 18 }}>Claim register</h2>
-        {loading ? (
-          <p>Loading assumed claims…</p>
-        ) : (
-          <DataTable
-            columns={[
-              column('number', 'Claim number', (claim) => claim.assumedClaimNumber),
-              column('cedent', 'Cedent claim', (claim) => claim.cedentClaimNumber || '—'),
-              column('status', 'Status', (claim) => claim.status),
-              column('lossDate', 'Loss date', (claim) => claim.lossDate || '—'),
-              column('reportDate', 'Report date', (claim) => claim.reportDate || '—'),
-              column('reserve', 'Reserve', (claim) => formatMoney(claim.reserveAmount, claim.reserveCurrency), 'right'),
-              column('version', 'Version', (claim) => claim.version, 'right'),
-              column('action', 'Workbench', (claim) => (
-                <button onClick={() => selectClaim(claim)} aria-label={`Open ${claim.assumedClaimNumber}`}>
-                  {selectedId === claim.id ? 'Selected' : 'Open'}
-                </button>
-              ))
-            ]}
-            rows={claims}
-            empty="No assumed claims recorded yet."
-            rowKey={(claim) => claim.id}
-          />
-        )}
-      </section>
-
-      {selectedClaim && (
-        <section aria-labelledby="workspace-heading" style={{ marginTop: 28, borderTop: '2px solid #214a8a', paddingTop: 16 }}>
-          <h2 id="workspace-heading" style={{ fontSize: 20, marginBottom: 4 }}>
-            {selectedClaim.assumedClaimNumber} · {selectedClaim.status}
-          </h2>
-          <p style={{ marginTop: 0, color: '#555' }}>
-            Cedent claim {selectedClaim.cedentClaimNumber || '—'} · Version {selectedClaim.version}
-            {resources.financials && (
-              <> · Incurred {formatMoney(resources.financials.cededIncurredAmount, resources.financials.currency)}
-                {' '}· Reserve {formatMoney(resources.financials.cededReserveAmount, resources.financials.currency)}</>
-            )}
-          </p>
-
-          <form onSubmit={applyStatus} style={{ display: 'flex', gap: 8, alignItems: 'end', marginBottom: 12 }}>
-            <Field label="Next status">
-              <select aria-label="Next status" value={statusTarget} onChange={(event) => setStatusTarget(event.target.value)}>
-                <option value="">Choose…</option>
-                {nextStatuses.map((status) => <option key={status} value={status}>{status}</option>)}
-              </select>
-            </Field>
-            <button type="submit" disabled={!statusTarget || submitting}>Apply status</button>
-          </form>
-
-          <div role="tablist" aria-label="Assumed claim sections" style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 14 }}>
-            <TabButton id="advices" active={tab === 'advices'} onClick={() => setTab('advices')}>Loss advice</TabButton>
-            <TabButton id="reserves" active={tab === 'reserves'} onClick={() => setTab('reserves')}>Reserve history</TabButton>
-            <TabButton id="cash" active={tab === 'cash'} onClick={() => setTab('cash')}>Cash calls</TabButton>
-            <TabButton id="recoveries" active={tab === 'recoveries'} onClick={() => setTab('recoveries')}>Recoveries</TabButton>
-            <TabButton id="commutation" active={tab === 'commutation'} onClick={() => setTab('commutation')}>Commutation</TabButton>
-            <TabButton id="disputes" active={tab === 'disputes'} onClick={() => setTab('disputes')}>Disputes</TabButton>
+          <Field label="Advice date">
+            <input type="date" value={adviceForm.adviceDate} onChange={update(setAdviceForm, 'adviceDate')} required />
+          </Field>
+          <Field label="Reported amount">
+            <input type="number" min="0" step="0.01" value={adviceForm.reportedAmount} onChange={update(setAdviceForm, 'reportedAmount')} required />
+          </Field>
+          <Field label="Paid amount">
+            <input type="number" min="0" step="0.01" value={adviceForm.paidAmount} onChange={update(setAdviceForm, 'paidAmount')} />
+          </Field>
+          <Field label="Outstanding amount">
+            <input type="number" min="0" step="0.01" value={adviceForm.outstandingAmount} onChange={update(setAdviceForm, 'outstandingAmount')} />
+          </Field>
+          <Field label="Cession %">
+            <input type="number" min="0" max="1" step="0.000001" value={adviceForm.cessionPct} onChange={update(setAdviceForm, 'cessionPct')} />
+          </Field>
+          <div className="eia-actions span-3" style={{ justifyContent: 'flex-end' }}>
+            <button type="submit" disabled={submitting}>Record advice</button>
           </div>
+        </form>
 
-          {workspaceLoading && <p>Loading workbench…</p>}
+        <div className="eia-divider" />
 
-          {tab === 'advices' && (
-            <div role="tabpanel" aria-label="Loss advice">
-              <h3 style={{ fontSize: 16 }}>Loss advice history</h3>
-              <DataTable
-                columns={[
-                  column('number', 'Advice', (advice) => advice.adviceNumber),
-                  column('type', 'Type', (advice) => advice.adviceType),
-                  column('date', 'Advice date', (advice) => advice.adviceDate),
-                  column('reported', 'Reported', (advice) => formatMoney(advice.reportedAmount, advice.currency), 'right'),
-                  column('status', 'Status', (advice) => advice.status),
-                  column('action', 'Action', (advice) => advice.status === 'RECEIVED' ? (
-                    <button
-                      onClick={() => mutate(`/claims/${selectedClaim.id}/advices/${advice.id}/accept`, {})}
-                      disabled={submitting}
-                      aria-label={`Accept ${advice.adviceNumber}`}
-                    >
-                      Accept
-                    </button>
-                  ) : '—')
-                ]}
-                rows={resources.advices}
-                empty="No loss advices recorded."
-                rowKey={(advice) => advice.id}
-              />
+        <div className="eia-section-title">
+          <h2>Bordereau batches</h2>
+        </div>
+        <DataTable
+          label="Bordereau batches"
+          columns={[
+            column('reference', 'Reference', (batch) => batch.bordereauReference),
+            column('date', 'Advice date', (batch) => batch.adviceDate || '—'),
+            column('lines', 'Lines', (batch) => batch.lineCount, 'right'),
+            column('accepted', 'Accepted', (batch) => batch.acceptedCount, 'right'),
+            column('duplicate', 'Duplicates', (batch) => batch.duplicateCount, 'right'),
+            column('rejected', 'Rejected', (batch) => batch.rejectedCount, 'right'),
+            column('status', 'Status', (batch) => <StatusPill status={batch.status} />)
+          ]}
+          rows={resources.bordereaux}
+          empty="No bordereau batches ingested."
+          rowKey={(batch) => batch.id}
+        />
 
-              <form onSubmit={recordAdvice} aria-label="Record loss advice" style={{ display: 'grid', gap: 8, gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', marginTop: 14 }}>
-                <Field label="Advice number">
-                  <input value={adviceForm.adviceNumber} onChange={update(setAdviceForm, 'adviceNumber')} placeholder="ADV-001" required />
-                </Field>
-                <Field label="Advice type">
-                  <select value={adviceForm.adviceType} onChange={update(setAdviceForm, 'adviceType')}>
-                    <option value="INITIAL_NOTICE">INITIAL_NOTICE</option>
-                    <option value="RESERVE_CHANGE">RESERVE_CHANGE</option>
-                    <option value="PAYMENT">PAYMENT</option>
-                    <option value="RECOVERY">RECOVERY</option>
-                    <option value="UPDATE">UPDATE</option>
-                    <option value="CLOSE">CLOSE</option>
-                  </select>
-                </Field>
-                <Field label="Advice date">
-                  <input type="date" value={adviceForm.adviceDate} onChange={update(setAdviceForm, 'adviceDate')} required />
-                </Field>
-                <Field label="Reported amount">
-                  <input type="number" min="0" step="0.01" value={adviceForm.reportedAmount} onChange={update(setAdviceForm, 'reportedAmount')} required />
-                </Field>
-                <Field label="Paid amount">
-                  <input type="number" min="0" step="0.01" value={adviceForm.paidAmount} onChange={update(setAdviceForm, 'paidAmount')} />
-                </Field>
-                <Field label="Outstanding amount">
-                  <input type="number" min="0" step="0.01" value={adviceForm.outstandingAmount} onChange={update(setAdviceForm, 'outstandingAmount')} />
-                </Field>
-                <Field label="Cession %">
-                  <input type="number" min="0" max="1" step="0.000001" value={adviceForm.cessionPct} onChange={update(setAdviceForm, 'cessionPct')} />
-                </Field>
-                <button type="submit" disabled={submitting}>Record advice</button>
-              </form>
+        <div className="eia-section-title">
+          <h2>Ingest bordereau</h2>
+        </div>
+        <form aria-label="Ingest bordereau" className="eia-form-grid" onSubmit={ingestBordereau}>
+          <Field label="Bordereau reference">
+            <input value={bordereauForm.bordereauReference} onChange={update(setBordereauForm, 'bordereauReference')} placeholder="BDX-2026-01" required />
+          </Field>
+          <Field label="Bordereau advice date">
+            <input type="date" value={bordereauForm.adviceDate} onChange={update(setBordereauForm, 'adviceDate')} required />
+          </Field>
+          <Field label="Lines (adviceNumber,amount)">
+            <input value={bordereauForm.lines} onChange={update(setBordereauForm, 'lines')} required />
+          </Field>
+          <div className="eia-actions span-3" style={{ justifyContent: 'flex-end' }}>
+            <button type="submit" disabled={submitting}>Ingest bordereau</button>
+          </div>
+        </form>
+      </>
+    );
+  }
 
-              <h3 style={{ fontSize: 16, marginTop: 22 }}>Bordereau batches</h3>
-              <DataTable
-                columns={[
-                  column('reference', 'Reference', (batch) => batch.bordereauReference),
-                  column('date', 'Advice date', (batch) => batch.adviceDate),
-                  column('lines', 'Lines', (batch) => batch.lineCount, 'right'),
-                  column('accepted', 'Accepted', (batch) => batch.acceptedCount, 'right'),
-                  column('duplicate', 'Duplicates', (batch) => batch.duplicateCount, 'right'),
-                  column('rejected', 'Rejected', (batch) => batch.rejectedCount, 'right'),
-                  column('status', 'Status', (batch) => batch.status)
-                ]}
-                rows={resources.bordereaux}
-                empty="No bordereau batches ingested."
-                rowKey={(batch) => batch.id}
-              />
-              <form onSubmit={ingestBordereau} aria-label="Ingest bordereau" style={{ display: 'grid', gap: 8, gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', marginTop: 10 }}>
-                <Field label="Bordereau reference">
-                  <input value={bordereauForm.bordereauReference} onChange={update(setBordereauForm, 'bordereauReference')} placeholder="BDX-2026-01" required />
-                </Field>
-                <Field label="Bordereau advice date">
-                  <input type="date" value={bordereauForm.adviceDate} onChange={update(setBordereauForm, 'adviceDate')} required />
-                </Field>
-                <Field label="Lines (adviceNumber,amount)">
-                  <input value={bordereauForm.lines} onChange={update(setBordereauForm, 'lines')} required />
-                </Field>
-                <button type="submit" disabled={submitting}>Ingest bordereau</button>
-              </form>
-            </div>
-          )}
+  function renderReserves() {
+    return (
+      <>
+        <div className="eia-section-title">
+          <h2>Reserve position</h2>
+          <span className="eia-muted">{resources.reserves.length} movement{resources.reserves.length === 1 ? '' : 's'}</span>
+        </div>
+        <div className="eia-card" style={{ marginBottom: 14 }}>
+          <h3>Current reserve</h3>
+          <div className="value" aria-label="Current reserve total" style={{ fontSize: 24, fontWeight: 700, color: 'var(--eia-navy)' }}>
+            {formatMoney(resources.financials?.cededReserveAmount, currency)}
+          </div>
+          <p className="eia-muted" style={{ margin: '4px 0 0', fontSize: 12 }}>
+            IBNR {formatMoney(resources.financials?.cededIbnrAmount, currency)}
+            {' '}· Incurred {formatMoney(resources.financials?.cededIncurredAmount, currency)}
+          </p>
+        </div>
+        <DataTable
+          label="Reserve history"
+          columns={[
+            column('effective', 'Effective', (entry) => entry.effectiveDate || '—'),
+            column('component', 'Component', (entry) => entry.component),
+            column('amount', 'Amount', (entry) => formatMoney(entry.amount, entry.currency), 'right'),
+            column('reason', 'Reason', (entry) => entry.reasonCode),
+            column('authority', 'Authority', (entry) => entry.authority),
+            column('current', 'Current', (entry) => entry.isCurrent ? 'Yes' : 'No'),
+            column('version', 'Version', (entry) => entry.version, 'right')
+          ]}
+          rows={resources.reserves}
+          empty="No reserve movements recorded."
+          rowKey={(entry) => entry.id}
+        />
 
-          {tab === 'reserves' && (
-            <div role="tabpanel" aria-label="Reserve history">
-              <h3 style={{ fontSize: 16 }}>Current reserve</h3>
-              <p aria-label="Current reserve total" style={{ fontSize: 22, fontWeight: 700 }}>
-                {formatMoney(resources.financials?.cededReserveAmount, resources.financials?.currency || currency)}
+        <div className="eia-section-title">
+          <h2>Change reserve</h2>
+        </div>
+        <form aria-label="Change reserve" className="eia-form-grid" onSubmit={changeReserve}>
+          <Field label="Component">
+            <select value={reserveForm.component} onChange={update(setReserveForm, 'component')}>
+              {['CASE', 'IBNR', 'IBNER', 'OUTSTANDING', 'ALAE', 'ULAE', 'CASH_LOSS', 'SALVAGE', 'SUBROGATION'].map((component) => (
+                <option key={component} value={component}>{component}</option>
+              ))}
+            </select>
+          </Field>
+          <Field label="Amount">
+            <input type="number" min="0" step="0.01" value={reserveForm.amount} onChange={update(setReserveForm, 'amount')} required />
+          </Field>
+          <Field label="Effective date">
+            <input type="date" value={reserveForm.effectiveDate} onChange={update(setReserveForm, 'effectiveDate')} required />
+          </Field>
+          <Field label="Reason">
+            <select value={reserveForm.reasonCode} onChange={update(setReserveForm, 'reasonCode')}>
+              {['INITIAL', 'ADVICE', 'DEVELOPMENT', 'PAYMENT_APPLIED', 'RECOVERY_APPLIED', 'REVIEW', 'COMMUTATION', 'CLOSE'].map((reason) => (
+                <option key={reason} value={reason}>{reason}</option>
+              ))}
+            </select>
+          </Field>
+          <Field label="Authority">
+            <select value={reserveForm.authority} onChange={update(setReserveForm, 'authority')}>
+              {['ADJUSTER', 'SENIOR_ADJUSTER', 'ACTUARIAL', 'UNDERWRITER'].map((authority) => (
+                <option key={authority} value={authority}>{authority}</option>
+              ))}
+            </select>
+          </Field>
+          <Field label="Approved by">
+            <input value={reserveForm.approvedBy} onChange={update(setReserveForm, 'approvedBy')} placeholder="Approver UUID for large/IBNR reserves" />
+          </Field>
+          <div className="eia-actions span-3" style={{ justifyContent: 'flex-end' }}>
+            <button type="submit" disabled={submitting}>Change reserve</button>
+          </div>
+        </form>
+      </>
+    );
+  }
+
+  function renderCashCalls() {
+    return (
+      <>
+        <div className="eia-section-title">
+          <h2>Cash call history</h2>
+          <span className="eia-muted">{resources.cashCalls.length} request{resources.cashCalls.length === 1 ? '' : 's'}</span>
+        </div>
+        <DataTable
+          label="Cash calls"
+          columns={[
+            column('number', 'Request', (call) => call.requestNumber),
+            column('amount', 'Amount', (call) => formatMoney(call.requestedAmount, call.currency), 'right'),
+            column('due', 'Due', (call) => call.dueDate || '—'),
+            column('status', 'Status', (call) => <StatusPill status={call.status} />),
+            column('approval', 'Approval', (call) => call.approvalStatus),
+            column('reason', 'Reason', (call) => call.reason)
+          ]}
+          rows={resources.cashCalls}
+          empty="No cash calls requested."
+          rowKey={(call) => call.id}
+        />
+
+        <div className="eia-section-title">
+          <h2>Request cash call</h2>
+        </div>
+        <form aria-label="Request cash call" className="eia-form-grid" onSubmit={requestCashCall}>
+          <Field label="Requested amount">
+            <input type="number" min="0.01" step="0.01" value={cashForm.requestedAmount} onChange={update(setCashForm, 'requestedAmount')} required />
+          </Field>
+          <Field label="Reason">
+            <select value={cashForm.reason} onChange={update(setCashForm, 'reason')}>
+              {['LARGE_LOSS', 'CASH_LOSS', 'EXPENSE', 'SECURITY', 'OTHER'].map((reason) => (
+                <option key={reason} value={reason}>{reason}</option>
+              ))}
+            </select>
+          </Field>
+          <Field label="Due date">
+            <input type="date" value={cashForm.dueDate} onChange={update(setCashForm, 'dueDate')} />
+          </Field>
+          <Field label="Approved by">
+            <input value={cashForm.approvedBy} onChange={update(setCashForm, 'approvedBy')} placeholder="Approver UUID" />
+          </Field>
+          <div className="eia-actions span-3" style={{ justifyContent: 'flex-end' }}>
+            <button type="submit" disabled={submitting}>Request cash call</button>
+          </div>
+        </form>
+      </>
+    );
+  }
+
+  function renderRecoveries() {
+    return (
+      <>
+        <div className="eia-section-title">
+          <h2>Recovery history</h2>
+          <span className="eia-muted">{resources.recoveries.length} recovery{resources.recoveries.length === 1 ? '' : 'ies'}</span>
+        </div>
+        <DataTable
+          label="Recoveries"
+          columns={[
+            column('type', 'Type', (recovery) => recovery.recoveryType),
+            column('amount', 'Amount', (recovery) => formatMoney(recovery.amount, recovery.currency), 'right'),
+            column('received', 'Received', (recovery) => recovery.receivedDate || '—'),
+            column('status', 'Status', (recovery) => <StatusPill status={recovery.status} />)
+          ]}
+          rows={resources.recoveries}
+          empty="No recoveries recorded."
+          rowKey={(recovery) => recovery.id}
+        />
+
+        <div className="eia-section-title">
+          <h2>Record recovery</h2>
+        </div>
+        <form aria-label="Record recovery" className="eia-form-grid" onSubmit={recordRecovery}>
+          <Field label="Recovery type">
+            <select value={recoveryForm.recoveryType} onChange={update(setRecoveryForm, 'recoveryType')}>
+              {['RETROCESSION', 'INURING_ASSUMED', 'FACULTATIVE', 'SALVAGE', 'SUBROGATION', 'OTHER'].map((type) => (
+                <option key={type} value={type}>{type}</option>
+              ))}
+            </select>
+          </Field>
+          <Field label="Recovery amount">
+            <input type="number" min="0.01" step="0.01" value={recoveryForm.amount} onChange={update(setRecoveryForm, 'amount')} required />
+          </Field>
+          <Field label="Received date">
+            <input type="date" value={recoveryForm.receivedDate} onChange={update(setRecoveryForm, 'receivedDate')} />
+          </Field>
+          <Field label="Recovery status">
+            <select value={recoveryForm.status} onChange={update(setRecoveryForm, 'status')}>
+              {['IDENTIFIED', 'PURSUING', 'AGREED', 'RECEIVED', 'DENIED', 'ABANDONED'].map((status) => (
+                <option key={status} value={status}>{status}</option>
+              ))}
+            </select>
+          </Field>
+          <div className="eia-actions span-3" style={{ justifyContent: 'flex-end' }}>
+            <button type="submit" disabled={submitting}>Record recovery</button>
+          </div>
+        </form>
+      </>
+    );
+  }
+
+  function renderCommutation() {
+    return (
+      <>
+        <div className="eia-section-title">
+          <h2>Commutation</h2>
+          <span className="eia-muted">{selectedClaim.status}</span>
+        </div>
+        {resources.commutation ? (
+          <div className="eia-card">
+            <dl className="eia-kv">
+              <dt>Commutation</dt>
+              <dd className="eia-mono">{resources.commutation.commutationNumber}</dd>
+              <dt>Status</dt>
+              <dd><StatusPill status={resources.commutation.status} /></dd>
+              <dt>Offer</dt>
+              <dd>{formatMoney(resources.commutation.offerAmount, resources.commutation.currency)}</dd>
+              <dt>Accepted</dt>
+              <dd>{formatMoney(resources.commutation.acceptedAmount, resources.commutation.currency)}</dd>
+              <dt>Effective date</dt>
+              <dd>{resources.commutation.effectiveDate || '—'}</dd>
+              <dt>Release document</dt>
+              <dd className="eia-mono">{resources.commutation.releaseDocumentId || '—'}</dd>
+              <dt>Approved by</dt>
+              <dd className="eia-mono">{resources.commutation.approvedBy || '—'}</dd>
+              <dt>Approver role</dt>
+              <dd>{resources.commutation.approverRole || '—'}</dd>
+            </dl>
+          </div>
+        ) : (
+          <>
+            <div className="eia-card" style={{ marginBottom: 14 }}>
+              <p style={{ margin: 0 }}>
+                No commutation has been recorded. Executing a commutation closes the claim and requires
+                a signed release document and an underwriter or claims approver.
               </p>
-              <p style={{ color: '#555' }}>
-                IBNR {formatMoney(resources.financials?.cededIbnrAmount, resources.financials?.currency || currency)}
-                {' '}· Incurred {formatMoney(resources.financials?.cededIncurredAmount, resources.financials?.currency || currency)}
-              </p>
-              <DataTable
-                columns={[
-                  column('effective', 'Effective', (entry) => entry.effectiveDate),
-                  column('component', 'Component', (entry) => entry.component),
-                  column('amount', 'Amount', (entry) => formatMoney(entry.amount, entry.currency), 'right'),
-                  column('reason', 'Reason', (entry) => entry.reasonCode),
-                  column('authority', 'Authority', (entry) => entry.authority),
-                  column('current', 'Current', (entry) => entry.isCurrent ? 'Yes' : 'No'),
-                  column('version', 'Version', (entry) => entry.version, 'right')
-                ]}
-                rows={resources.reserves}
-                empty="No reserve movements recorded."
-                rowKey={(entry) => entry.id}
-              />
-              <form onSubmit={changeReserve} aria-label="Change reserve" style={{ display: 'grid', gap: 8, gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', marginTop: 14 }}>
-                <Field label="Component">
-                  <select value={reserveForm.component} onChange={update(setReserveForm, 'component')}>
-                    {['CASE', 'IBNR', 'IBNER', 'OUTSTANDING', 'ALAE', 'ULAE', 'CASH_LOSS', 'SALVAGE', 'SUBROGATION'].map((component) => (
-                      <option key={component} value={component}>{component}</option>
-                    ))}
-                  </select>
-                </Field>
-                <Field label="Amount">
-                  <input type="number" min="0" step="0.01" value={reserveForm.amount} onChange={update(setReserveForm, 'amount')} required />
-                </Field>
-                <Field label="Effective date">
-                  <input type="date" value={reserveForm.effectiveDate} onChange={update(setReserveForm, 'effectiveDate')} required />
-                </Field>
-                <Field label="Reason">
-                  <select value={reserveForm.reasonCode} onChange={update(setReserveForm, 'reasonCode')}>
-                    {['INITIAL', 'ADVICE', 'DEVELOPMENT', 'PAYMENT_APPLIED', 'RECOVERY_APPLIED', 'REVIEW', 'COMMUTATION', 'CLOSE'].map((reason) => (
-                      <option key={reason} value={reason}>{reason}</option>
-                    ))}
-                  </select>
-                </Field>
-                <Field label="Authority">
-                  <select value={reserveForm.authority} onChange={update(setReserveForm, 'authority')}>
-                    {['ADJUSTER', 'SENIOR_ADJUSTER', 'ACTUARIAL', 'UNDERWRITER'].map((authority) => (
-                      <option key={authority} value={authority}>{authority}</option>
-                    ))}
-                  </select>
-                </Field>
-                <Field label="Approved by">
-                  <input value={reserveForm.approvedBy} onChange={update(setReserveForm, 'approvedBy')} placeholder="Approver UUID for large/IBNR reserves" />
-                </Field>
-                <button type="submit" disabled={submitting}>Change reserve</button>
-              </form>
+            </div>
+            <form aria-label="Commute claim" className="eia-form-grid" onSubmit={commute}>
+              <Field label="Offer amount">
+                <input type="number" min="0" step="0.01" value={commutationForm.offerAmount} onChange={update(setCommutationForm, 'offerAmount')} required />
+              </Field>
+              <Field label="Accepted amount">
+                <input type="number" min="0" step="0.01" value={commutationForm.acceptedAmount} onChange={update(setCommutationForm, 'acceptedAmount')} required />
+              </Field>
+              <Field label="Effective date">
+                <input type="date" value={commutationForm.effectiveDate} onChange={update(setCommutationForm, 'effectiveDate')} required />
+              </Field>
+              <Field label="Approver role">
+                <select value={commutationForm.approverRole} onChange={update(setCommutationForm, 'approverRole')}>
+                  <option value="UNDERWRITER">UNDERWRITER</option>
+                  <option value="CLAIMS">CLAIMS</option>
+                </select>
+              </Field>
+              <Field label="Approved by">
+                <input value={commutationForm.approvedBy} onChange={update(setCommutationForm, 'approvedBy')} placeholder="Approver UUID" required />
+              </Field>
+              <Field label="Release document ID">
+                <input value={commutationForm.releaseDocumentId} onChange={update(setCommutationForm, 'releaseDocumentId')} placeholder="Signed release document UUID" required />
+              </Field>
+              <div className="eia-actions span-3" style={{ justifyContent: 'flex-end' }}>
+                <button type="submit" disabled={submitting}>Execute commutation</button>
+              </div>
+            </form>
+          </>
+        )}
+      </>
+    );
+  }
+
+  function renderDisputes() {
+    return (
+      <>
+        <div className="eia-section-title">
+          <h2>Dispute register</h2>
+          <span className="eia-muted">{resources.disputes.length} dispute{resources.disputes.length === 1 ? '' : 's'}</span>
+        </div>
+        <DataTable
+          label="Disputes"
+          columns={[
+            column('number', 'Dispute', (dispute) => dispute.disputeNumber),
+            column('type', 'Type', (dispute) => dispute.disputeType),
+            column('amount', 'Contested', (dispute) => formatMoney(dispute.contestedAmount, dispute.currency), 'right'),
+            column('status', 'Status', (dispute) => <StatusPill status={dispute.status} />),
+            column('resolution', 'Resolution', (dispute) => dispute.resolution || '—'),
+            column('action', 'Action', (dispute) => ['OPEN', 'UNDER_REVIEW', 'NEGOTIATING', 'ESCALATED', 'ARBITRATION'].includes(dispute.status) ? (
+              <button
+                type="button"
+                className="eia-btn-secondary"
+                onClick={() => resolveDispute(dispute)}
+                disabled={submitting}
+                aria-label={`Resolve ${dispute.disputeNumber}`}
+              >
+                Resolve
+              </button>
+            ) : '—')
+          ]}
+          rows={resources.disputes}
+          empty="No disputes recorded."
+          rowKey={(dispute) => dispute.id}
+        />
+
+        <div className="eia-section-title">
+          <h2>Raise dispute</h2>
+        </div>
+        <form aria-label="Raise dispute" className="eia-form-grid" onSubmit={raiseDispute}>
+          <Field label="Dispute type">
+            <select value={disputeForm.disputeType} onChange={update(setDisputeForm, 'disputeType')}>
+              {['COVERAGE', 'QUANTUM', 'LATE_NOTICE', 'ALLOCATION', 'CESSION', 'BORDEREAU', 'SECURITY', 'OTHER'].map((type) => (
+                <option key={type} value={type}>{type}</option>
+              ))}
+            </select>
+          </Field>
+          <Field label="Dispute reason">
+            <input value={disputeForm.reason} onChange={update(setDisputeForm, 'reason')} placeholder="Reason for dispute" required />
+          </Field>
+          <Field label="Contested amount">
+            <input type="number" min="0" step="0.01" value={disputeForm.contestedAmount} onChange={update(setDisputeForm, 'contestedAmount')} required />
+          </Field>
+          <div className="eia-actions span-3" style={{ justifyContent: 'flex-end' }}>
+            <button type="submit" disabled={submitting}>Raise dispute</button>
+          </div>
+        </form>
+      </>
+    );
+  }
+
+  function renderAudit() {
+    return (
+      <>
+        <div className="eia-section-title">
+          <h2>Claim audit trail</h2>
+          <span className="eia-muted">{resources.audits.length} event{resources.audits.length === 1 ? '' : 's'}</span>
+        </div>
+        <DataTable
+          label="Claim audit trail"
+          columns={[
+            column('sequence', 'Sequence', (entry) => entry.sequence, 'right'),
+            column('event', 'Event', (entry) => <span className="eia-badge">{entry.eventType}</span>),
+            column('actor', 'Actor', (entry) => entry.actor || '—'),
+            column('detail', 'Detail', (entry) => entry.detail || '—'),
+            column('occurred', 'Occurred', (entry) => formatTimestamp(entry.occurredAt))
+          ]}
+          rows={resources.audits}
+          empty="No audit events recorded."
+          rowKey={(entry) => entry.id || entry.sequence}
+        />
+      </>
+    );
+  }
+
+  function renderTabPanel() {
+    switch (tab) {
+      case 'advices': return renderAdvices();
+      case 'reserves': return renderReserves();
+      case 'cash': return renderCashCalls();
+      case 'recoveries': return renderRecoveries();
+      case 'commutation': return renderCommutation();
+      case 'disputes': return renderDisputes();
+      case 'audit': return renderAudit();
+      default: return renderOverview();
+    }
+  }
+
+  return (
+    <main>
+      <header className="eia-page-head">
+        <div>
+          <div className="eyebrow">Claims · Assumed book</div>
+          <h1>Assumed Claims</h1>
+          <p className="subtitle">
+            Loss advices, reinsurance reserves, cash calls, recoveries, disputes, commutations, and
+            audit history for inward reinsurance claims on the ASSUMED book.
+          </p>
+        </div>
+        <div className="eia-actions">
+          <span className="eia-badge assumed" aria-label="Book scope">ASSUMED</span>
+          <button
+            type="button"
+            className="eia-btn-secondary"
+            onClick={refreshWorkspace}
+            disabled={loading || submitting}
+          >
+            Refresh
+          </button>
+          <button type="button" onClick={openRegister}>Register assumed claim</button>
+        </div>
+      </header>
+
+      {error && !registerOpen && (
+        <p role="alert" style={{ margin: '0 0 14px' }}>{error}</p>
+      )}
+
+      <div className="eia-record-layout">
+        <aside className="eia-record-list" aria-label="Assumed claim register">
+          <div className="eia-record-list-head">
+            <strong>Assumed claims</strong>
+            <span className="eia-muted">
+              {loading ? 'Loading…' : `${claims.length} record${claims.length === 1 ? '' : 's'}`}
+            </span>
+          </div>
+          {loading && <div className="empty">Loading assumed claims…</div>}
+          {!loading && claims.length === 0 && (
+            <div className="empty">No assumed claims recorded yet. Use Register assumed claim to create the first record.</div>
+          )}
+          {!loading && claims.map((claim) => (
+            <button
+              key={claim.id}
+              type="button"
+              className={selectedId === claim.id ? 'selected' : ''}
+              aria-label={`Open ${claim.assumedClaimNumber}`}
+              aria-pressed={selectedId === claim.id}
+              onClick={() => selectClaim(claim)}
+            >
+              <span className="record-primary">{claim.assumedClaimNumber}</span>
+              <span className="record-secondary">Cedent claim {claim.cedentClaimNumber || '—'}</span>
+              <span><StatusPill status={claim.status} /></span>
+            </button>
+          ))}
+        </aside>
+
+        <section className="eia-record-panel" aria-label="Assumed claim workbench" aria-busy={workspaceLoading}>
+          {!selectedClaim && (
+            <div className="eia-empty">
+              Select an assumed claim from the register to open its operational record, or register a new claim.
             </div>
           )}
 
-          {tab === 'cash' && (
-            <div role="tabpanel" aria-label="Cash calls">
-              <DataTable
-                columns={[
-                  column('number', 'Request', (call) => call.requestNumber),
-                  column('amount', 'Amount', (call) => formatMoney(call.requestedAmount, call.currency), 'right'),
-                  column('due', 'Due', (call) => call.dueDate || '—'),
-                  column('status', 'Status', (call) => call.status),
-                  column('approval', 'Approval', (call) => call.approvalStatus),
-                  column('reason', 'Reason', (call) => call.reason)
-                ]}
-                rows={resources.cashCalls}
-                empty="No cash calls requested."
-                rowKey={(call) => call.id}
-              />
-              <form onSubmit={requestCashCall} aria-label="Request cash call" style={{ display: 'grid', gap: 8, gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', marginTop: 14 }}>
-                <Field label="Requested amount">
-                  <input type="number" min="0.01" step="0.01" value={cashForm.requestedAmount} onChange={update(setCashForm, 'requestedAmount')} required />
-                </Field>
-                <Field label="Reason">
-                  <select value={cashForm.reason} onChange={update(setCashForm, 'reason')}>
-                    {['LARGE_LOSS', 'CASH_LOSS', 'EXPENSE', 'SECURITY', 'OTHER'].map((reason) => (
-                      <option key={reason} value={reason}>{reason}</option>
-                    ))}
-                  </select>
-                </Field>
-                <Field label="Due date">
-                  <input type="date" value={cashForm.dueDate} onChange={update(setCashForm, 'dueDate')} />
-                </Field>
-                <Field label="Approved by">
-                  <input value={cashForm.approvedBy} onChange={update(setCashForm, 'approvedBy')} placeholder="Approver UUID" />
-                </Field>
-                <button type="submit" disabled={submitting}>Request cash call</button>
-              </form>
-            </div>
-          )}
-
-          {tab === 'recoveries' && (
-            <div role="tabpanel" aria-label="Recoveries">
-              <DataTable
-                columns={[
-                  column('type', 'Type', (recovery) => recovery.recoveryType),
-                  column('amount', 'Amount', (recovery) => formatMoney(recovery.amount, recovery.currency), 'right'),
-                  column('received', 'Received', (recovery) => recovery.receivedDate),
-                  column('status', 'Status', (recovery) => recovery.status)
-                ]}
-                rows={resources.recoveries}
-                empty="No recoveries recorded."
-                rowKey={(recovery) => recovery.id}
-              />
-              <form onSubmit={recordRecovery} aria-label="Record recovery" style={{ display: 'grid', gap: 8, gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', marginTop: 14 }}>
-                <Field label="Recovery type">
-                  <select value={recoveryForm.recoveryType} onChange={update(setRecoveryForm, 'recoveryType')}>
-                    {['RETROCESSION', 'INURING_ASSUMED', 'FACULTATIVE', 'SALVAGE', 'SUBROGATION', 'OTHER'].map((type) => (
-                      <option key={type} value={type}>{type}</option>
-                    ))}
-                  </select>
-                </Field>
-                <Field label="Recovery amount">
-                  <input type="number" min="0.01" step="0.01" value={recoveryForm.amount} onChange={update(setRecoveryForm, 'amount')} required />
-                </Field>
-                <Field label="Received date">
-                  <input type="date" value={recoveryForm.receivedDate} onChange={update(setRecoveryForm, 'receivedDate')} />
-                </Field>
-                <Field label="Recovery status">
-                  <select value={recoveryForm.status} onChange={update(setRecoveryForm, 'status')}>
-                    {['IDENTIFIED', 'PURSUING', 'AGREED', 'RECEIVED', 'DENIED', 'ABANDONED'].map((status) => (
-                      <option key={status} value={status}>{status}</option>
-                    ))}
-                  </select>
-                </Field>
-                <button type="submit" disabled={submitting}>Record recovery</button>
-              </form>
-            </div>
-          )}
-
-          {tab === 'commutation' && (
-            <div role="tabpanel" aria-label="Commutation">
-              {resources.commutation ? (
-                <div style={{ background: '#f5f8fd', border: '1px solid #c9d9f7', borderRadius: 6, padding: 12 }}>
-                  <p style={{ margin: 0 }}><strong>{resources.commutation.commutationNumber}</strong> · {resources.commutation.status}</p>
-                  <p style={{ margin: '6px 0 0' }}>
-                    Offer {formatMoney(resources.commutation.offerAmount, resources.commutation.currency)}
-                    {' '}· Accepted {formatMoney(resources.commutation.acceptedAmount, resources.commutation.currency)}
-                    {' '}· Effective {resources.commutation.effectiveDate}
-                  </p>
-                  <p style={{ margin: '6px 0 0', color: '#555' }}>
-                    Release document {resources.commutation.releaseDocumentId} · Approved by {resources.commutation.approvedBy} ({resources.commutation.approverRole})
+          {selectedClaim && (
+            <>
+              <div className="eia-record-title">
+                <div>
+                  <h2>{selectedClaim.assumedClaimNumber}</h2>
+                  <p className="eia-record-subtitle">
+                    Cedent claim <strong>{selectedClaim.cedentClaimNumber || '—'}</strong>
+                    {' '}· Contract <span className="eia-mono" title={selectedClaim.contractId}>{shortId(selectedClaim.contractId)}</span>
+                    {' '}· Version {selectedClaim.version}
                   </p>
                 </div>
-              ) : (
-                <form onSubmit={commute} aria-label="Commute claim" style={{ display: 'grid', gap: 8, gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))' }}>
-                  <Field label="Offer amount">
-                    <input type="number" min="0" step="0.01" value={commutationForm.offerAmount} onChange={update(setCommutationForm, 'offerAmount')} required />
-                  </Field>
-                  <Field label="Accepted amount">
-                    <input type="number" min="0" step="0.01" value={commutationForm.acceptedAmount} onChange={update(setCommutationForm, 'acceptedAmount')} required />
-                  </Field>
-                  <Field label="Effective date">
-                    <input type="date" value={commutationForm.effectiveDate} onChange={update(setCommutationForm, 'effectiveDate')} required />
-                  </Field>
-                  <Field label="Approver role">
-                    <select value={commutationForm.approverRole} onChange={update(setCommutationForm, 'approverRole')}>
-                      <option value="UNDERWRITER">UNDERWRITER</option>
-                      <option value="CLAIMS">CLAIMS</option>
-                    </select>
-                  </Field>
-                  <Field label="Approved by">
-                    <input value={commutationForm.approvedBy} onChange={update(setCommutationForm, 'approvedBy')} placeholder="Approver UUID" required />
-                  </Field>
-                  <Field label="Release document ID">
-                    <input value={commutationForm.releaseDocumentId} onChange={update(setCommutationForm, 'releaseDocumentId')} placeholder="Signed release document UUID" required />
-                  </Field>
-                  <button type="submit" disabled={submitting}>Execute commutation</button>
-                </form>
-              )}
-            </div>
-          )}
+                <StatusPill status={selectedClaim.status} />
+              </div>
 
-          {tab === 'disputes' && (
-            <div role="tabpanel" aria-label="Disputes">
-              <DataTable
-                columns={[
-                  column('number', 'Dispute', (dispute) => dispute.disputeNumber),
-                  column('type', 'Type', (dispute) => dispute.disputeType),
-                  column('amount', 'Contested', (dispute) => formatMoney(dispute.contestedAmount, dispute.currency), 'right'),
-                  column('status', 'Status', (dispute) => dispute.status),
-                  column('resolution', 'Resolution', (dispute) => dispute.resolution || '—'),
-                  column('action', 'Action', (dispute) => ['OPEN', 'UNDER_REVIEW', 'NEGOTIATING', 'ESCALATED', 'ARBITRATION'].includes(dispute.status) ? (
-                    <button onClick={() => resolveDispute(dispute)} disabled={submitting} aria-label={`Resolve ${dispute.disputeNumber}`}>
-                      Resolve
-                    </button>
-                  ) : '—')
-                ]}
-                rows={resources.disputes}
-                empty="No disputes recorded."
-                rowKey={(dispute) => dispute.id}
-              />
-              <form onSubmit={raiseDispute} aria-label="Raise dispute" style={{ display: 'grid', gap: 8, gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', marginTop: 14 }}>
-                <Field label="Dispute type">
-                  <select value={disputeForm.disputeType} onChange={update(setDisputeForm, 'disputeType')}>
-                    {['COVERAGE', 'QUANTUM', 'LATE_NOTICE', 'ALLOCATION', 'CESSION', 'BORDEREAU', 'SECURITY', 'OTHER'].map((type) => (
-                      <option key={type} value={type}>{type}</option>
-                    ))}
-                  </select>
-                </Field>
-                <Field label="Dispute reason">
-                  <input value={disputeForm.reason} onChange={update(setDisputeForm, 'reason')} placeholder="Reason for dispute" required />
-                </Field>
-                <Field label="Contested amount">
-                  <input type="number" min="0" step="0.01" value={disputeForm.contestedAmount} onChange={update(setDisputeForm, 'contestedAmount')} required />
-                </Field>
-                <button type="submit" disabled={submitting}>Raise dispute</button>
+              <form className="eia-toolbar" aria-label="Change claim status" onSubmit={applyStatus}>
+                <label htmlFor="next-status" className="eia-muted">Next status</label>
+                <select
+                  id="next-status"
+                  aria-label="Next status"
+                  value={statusTarget}
+                  onChange={(event) => setStatusTarget(event.target.value)}
+                  disabled={nextStatuses.length === 0 || submitting}
+                >
+                  <option value="">{nextStatuses.length === 0 ? 'No transitions' : 'Choose…'}</option>
+                  {nextStatuses.map((status) => <option key={status} value={status}>{status}</option>)}
+                </select>
+                <button type="submit" disabled={!statusTarget || submitting}>Apply status</button>
+                <span className="spacer" />
+                <button
+                  type="button"
+                  className="eia-btn-secondary"
+                  onClick={closeClaim}
+                  disabled={submitting || selectedClaim.status === 'CLOSED'}
+                >
+                  Close claim
+                </button>
               </form>
-            </div>
+
+              <div className="eia-summary-grid">
+                <div className="eia-card">
+                  <h3>Current reserve</h3>
+                  <div className="value">{formatMoney(resources.financials?.cededReserveAmount, currency)}</div>
+                  <div className="eia-metric-label">ceded reserve to date</div>
+                </div>
+                <div className="eia-card">
+                  <h3>Advised loss</h3>
+                  <div className="value">{formatMoney(resources.financials?.advisedLossAmount, currency)}</div>
+                  <div className="eia-metric-label">cedent advised</div>
+                </div>
+                <div className="eia-card">
+                  <h3>Recoveries</h3>
+                  <div className="value">{formatMoney(resources.financials?.cededRecoveryAmount, currency)}</div>
+                  <div className="eia-metric-label">ceded recoveries</div>
+                </div>
+                <div className="eia-card">
+                  <h3>Cash calls</h3>
+                  <div className="value">{formatMoney(resources.financials?.cashCallAmount, currency)}</div>
+                  <div className="eia-metric-label">requested to date</div>
+                </div>
+              </div>
+
+              {workspaceLoading && <p className="eia-muted" role="status">Loading workbench…</p>}
+
+              <div className="eia-tabs" role="tablist" aria-label="Assumed claim sections">
+                {TABS.map((item) => (
+                  <button
+                    key={item.id}
+                    id={`claim-tab-${item.id}`}
+                    type="button"
+                    role="tab"
+                    aria-selected={tab === item.id}
+                    aria-controls={`claim-panel-${item.id}`}
+                    className={tab === item.id ? 'eia-tab active' : 'eia-tab'}
+                    onClick={() => setTab(item.id)}
+                  >
+                    {item.label}
+                  </button>
+                ))}
+              </div>
+
+              <div
+                id={`claim-panel-${tab}`}
+                role="tabpanel"
+                aria-labelledby={`claim-tab-${tab}`}
+              >
+                {renderTabPanel()}
+              </div>
+            </>
           )}
         </section>
+      </div>
+
+      {registerOpen && (
+        <div
+          style={MODAL_BACKDROP}
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) setRegisterOpen(false);
+          }}
+        >
+          <section
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="register-claim-title"
+            style={MODAL_CARD}
+          >
+            <div className="eia-record-title">
+              <div>
+                <h2 id="register-claim-title">Register assumed claim</h2>
+                <p className="eia-record-subtitle">
+                  Create the reinsurer claim record from a cedent notice. The ASSUMED book scope is applied
+                  to every request.
+                </p>
+              </div>
+              <button type="button" className="eia-btn-ghost" onClick={() => setRegisterOpen(false)}>
+                Cancel
+              </button>
+            </div>
+
+            {error && <p role="alert" style={{ margin: '10px 0 14px' }}>{error}</p>}
+
+            <form aria-label="Register assumed claim" className="eia-form-grid" onSubmit={submitClaim}>
+              <Field label="Contract ID">
+                <input
+                  value={claimForm.contractId}
+                  onChange={update(setClaimForm, 'contractId')}
+                  autoFocus
+                  required
+                />
+              </Field>
+              <Field label="Cedent claim number">
+                <input value={claimForm.cedentClaimNumber} onChange={update(setClaimForm, 'cedentClaimNumber')} placeholder="CED-778" />
+              </Field>
+              <Field label="Loss date">
+                <input type="date" value={claimForm.lossDate} onChange={update(setClaimForm, 'lossDate')} />
+              </Field>
+              <Field label="Report date">
+                <input type="date" value={claimForm.reportDate} onChange={update(setClaimForm, 'reportDate')} />
+              </Field>
+              <Field label="Reserve amount">
+                <input type="number" min="0" step="0.01" value={claimForm.reserveAmount} onChange={update(setClaimForm, 'reserveAmount')} required />
+              </Field>
+              <Field label="Reserve currency">
+                <select value={claimForm.reserveCurrency} onChange={update(setClaimForm, 'reserveCurrency')}>
+                  <option value="USD">USD</option>
+                  <option value="EUR">EUR</option>
+                  <option value="GBP">GBP</option>
+                </select>
+              </Field>
+              <div className="eia-actions span-3" style={{ justifyContent: 'flex-end' }}>
+                <button type="submit" disabled={submitting}>
+                  {submitting ? 'Creating…' : 'Create assumed claim'}
+                </button>
+              </div>
+            </form>
+          </section>
+        </div>
       )}
     </main>
   );

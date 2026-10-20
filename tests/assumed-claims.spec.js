@@ -31,6 +31,16 @@ async function installWorkspaceMock(page) {
     cashCalls: [],
     recoveries: [],
     disputes: [],
+    audit: [{
+      id: 'audit-1',
+      tenantId: TENANT,
+      assumedClaimId: CLAIM_ID,
+      eventType: 'CLAIM_REGISTERED',
+      actor: 'claims.adjuster@eia.example',
+      detail: 'Assumed claim registered from the cedent notice.',
+      occurredAt: '2026-09-02T13:00:00Z',
+      sequence: 1
+    }],
     commutation: null,
     seenHeaders: []
   };
@@ -88,7 +98,7 @@ async function installWorkspaceMock(page) {
     }
 
     const subresource = path.match(
-      /^\/claims\/([^/]+)\/(advices|bordereaux|reserves|cash-calls|recoveries|disputes|commutation|financials|status)(?:\/([^/]+))?(?:\/(accept|resolve))?$/
+      /^\/claims\/([^/]+)\/(advices|bordereaux|reserves|cash-calls|recoveries|disputes|commutation|financials|status|audit|close)(?:\/([^/]+))?(?:\/(accept|resolve))?$/
     );
 
     if (!subresource) {
@@ -106,6 +116,10 @@ async function installWorkspaceMock(page) {
 
     if (resource === 'financials' && method === 'GET') {
       return fulfill(200, summary());
+    }
+
+    if (resource === 'audit' && method === 'GET') {
+      return fulfill(200, state.audit);
     }
 
     if (resource === 'advices' && method === 'GET') {
@@ -267,6 +281,23 @@ async function installWorkspaceMock(page) {
       return fulfill(200, claim);
     }
 
+    if (resource === 'close' && method === 'POST') {
+      const claim = state.claims.find((entry) => entry.id === CLAIM_ID);
+      claim.status = 'CLOSED';
+      claim.version += 1;
+      state.audit = [{
+        id: 'audit-2',
+        tenantId: TENANT,
+        assumedClaimId: CLAIM_ID,
+        eventType: 'CLAIM_CLOSED',
+        actor: 'claims.adjuster@eia.example',
+        detail: 'Claim closed from the assumed claims workbench.',
+        occurredAt: '2026-10-20T12:00:00Z',
+        sequence: 2
+      }, ...state.audit];
+      return fulfill(200, claim);
+    }
+
     return fulfill(404, {
       type: 'https://errors.eia.example/not-found',
       title: 'Not found',
@@ -280,29 +311,72 @@ async function installWorkspaceMock(page) {
   return state;
 }
 
-test('renders the assumed claims workbench and scopes requests to the ASSUMED book', async ({ page }) => {
+test('renders the operational assumed claims workbench and scopes requests to the ASSUMED book', async ({ page }) => {
   const state = await installWorkspaceMock(page);
 
   await page.goto('/');
 
+  await expect(page.getByText('Claims · Assumed book')).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Assumed Claims' })).toBeVisible();
-  await expect(page.getByText('RNS-2026-0007731')).toBeVisible();
-  await expect(page.getByText('CED-778')).toBeVisible();
-  await expect(page.getByText('NOTIFIED')).toBeVisible();
+  await expect(page.getByLabel('Book scope')).toHaveText('ASSUMED');
+
+  const record = page.getByRole('button', { name: 'Open RNS-2026-0007731' });
+  await expect(record).toBeVisible();
+  await expect(record).toContainText('RNS-2026-0007731');
+  await expect(record).toContainText('CED-778');
+  await expect(record).toContainText('NOTIFIED');
+  await expect(page.getByRole('heading', { name: 'RNS-2026-0007731' })).toBeVisible();
+
+  const summary = page.locator('.eia-summary-grid');
+  await expect(summary).toContainText('Current reserve');
+  await expect(summary).toContainText('Advised loss');
+  await expect(summary).toContainText('Recoveries');
+  await expect(summary).toContainText('Cash calls');
   await expect(page.getByText('$12,500.00')).toBeVisible();
 
   expect(state.seenHeaders.length).toBeGreaterThan(0);
-  expect(state.seenHeaders[0]['x-eia-book']).toBe('ASSUMED');
-  expect(state.seenHeaders[0]['x-eia-tenant']).toBe(TENANT);
+  expect(state.seenHeaders.every((headers) => headers['x-eia-book'] === 'ASSUMED')).toBe(true);
+  expect(state.seenHeaders.every((headers) => headers['x-eia-tenant'] === TENANT)).toBe(true);
 });
 
-test('records and accepts a loss advice from the workbench', async ({ page }) => {
+test('registers an assumed claim from the page action instead of an always-open form', async ({ page }) => {
   const state = await installWorkspaceMock(page);
 
   await page.goto('/');
-  await page.getByRole('button', { name: 'Open RNS-2026-0007731' }).click();
-  await expect(page.getByRole('heading', { name: 'Loss advice history' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Open RNS-2026-0007731' })).toBeVisible();
+  await expect(page.getByRole('form', { name: 'Register assumed claim' })).toHaveCount(0);
 
+  await page.getByRole('button', { name: 'Register assumed claim' }).click();
+  const dialog = page.getByRole('dialog');
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByRole('heading', { name: 'Register assumed claim' })).toBeVisible();
+
+  await dialog.getByLabel('Cedent claim number').fill('CED-900');
+  await dialog.getByLabel('Loss date').fill('2026-10-01');
+  await dialog.getByLabel('Report date').fill('2026-10-02');
+  await dialog.getByLabel('Reserve amount').fill('42000');
+  await dialog.getByRole('button', { name: 'Create assumed claim' }).click();
+
+  await expect(dialog).toBeHidden();
+  const created = page.getByRole('button', { name: 'Open RNS-2026-0007732' });
+  await expect(created).toBeVisible();
+  await expect(created).toContainText('CED-900');
+  await expect(page.getByRole('heading', { name: 'RNS-2026-0007732' })).toBeVisible();
+
+  expect(state.claims).toHaveLength(2);
+  expect(state.claims[0].cedentClaimNumber).toBe('CED-900');
+  expect(state.claims[0].reserveAmount).toBe(42000);
+  expect(state.seenHeaders.every((headers) => headers['x-eia-book'] === 'ASSUMED')).toBe(true);
+});
+
+test('records and accepts a loss advice from the new workbench tabs', async ({ page }) => {
+  const state = await installWorkspaceMock(page);
+
+  await page.goto('/');
+  await expect(page.getByRole('heading', { name: 'RNS-2026-0007731' })).toBeVisible();
+  await page.getByRole('tab', { name: 'Loss Advice' }).click();
+
+  await expect(page.getByRole('heading', { name: 'Loss advice history' })).toBeVisible();
   const form = page.getByRole('form', { name: 'Record loss advice' });
   await form.getByLabel('Advice number').fill('ADV-9001');
   await form.getByLabel('Reported amount').fill('250000');
@@ -315,8 +389,6 @@ test('records and accepts a loss advice from the workbench', async ({ page }) =>
   await page.getByRole('button', { name: 'Accept ADV-9001' }).click();
   await expect(page.getByText('POSTED')).toBeVisible();
 
-  const adviceRequest = state.seenHeaders.find((headers) => headers['x-eia-book'] === 'ASSUMED');
-  expect(adviceRequest).toBeTruthy();
   expect(state.advices[0].status).toBe('POSTED');
   expect(state.advices[0].reportedAmount).toBe('250000.0000');
 });
@@ -325,10 +397,10 @@ test('adds a reserve movement and shows the derived current reserve', async ({ p
   const state = await installWorkspaceMock(page);
 
   await page.goto('/');
-  await page.getByRole('button', { name: 'Open RNS-2026-0007731' }).click();
-  await page.getByRole('tab', { name: 'Reserve history' }).click();
+  await expect(page.getByRole('heading', { name: 'RNS-2026-0007731' })).toBeVisible();
+  await page.getByRole('tab', { name: 'Reserve History' }).click();
 
-  await expect(page.getByRole('heading', { name: 'Current reserve' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Reserve position' })).toBeVisible();
   await expect(page.locator('[aria-label="Current reserve total"]')).toHaveText('$0.00');
 
   const form = page.getByRole('form', { name: 'Change reserve' });
@@ -345,4 +417,49 @@ test('adds a reserve movement and shows the derived current reserve', async ({ p
   expect(state.reserves).toHaveLength(1);
   expect(state.reserves[0].amount).toBe('100000.0000');
   expect(state.reserves[0].isCurrent).toBe(true);
+});
+
+test('navigates every assumed claim tab, including the audit trail', async ({ page }) => {
+  await installWorkspaceMock(page);
+
+  await page.goto('/');
+  await expect(page.getByRole('heading', { name: 'RNS-2026-0007731' })).toBeVisible();
+
+  const sections = [
+    ['Overview', 'Claim details'],
+    ['Loss Advice', 'Loss advice history'],
+    ['Reserve History', 'Reserve position'],
+    ['Cash Calls', 'Cash call history'],
+    ['Recoveries', 'Recovery history'],
+    ['Commutation', 'Commutation'],
+    ['Disputes', 'Dispute register'],
+    ['Audit', 'Claim audit trail']
+  ];
+
+  for (const [tabName, heading] of sections) {
+    const tab = page.getByRole('tab', { name: tabName });
+    await tab.click();
+    await expect(tab).toHaveAttribute('aria-selected', 'true');
+    await expect(page.getByRole('tabpanel', { name: tabName })).toBeVisible();
+    await expect(page.getByRole('heading', { name: heading })).toBeVisible();
+  }
+
+  await expect(page.getByRole('cell', { name: 'CLAIM_REGISTERED' })).toBeVisible();
+  await expect(page.getByRole('cell', { name: 'claims.adjuster@eia.example' })).toBeVisible();
+});
+
+test('closes the selected assumed claim and reflects the new status', async ({ page }) => {
+  const state = await installWorkspaceMock(page);
+
+  await page.goto('/');
+  await expect(page.getByRole('heading', { name: 'RNS-2026-0007731' })).toBeVisible();
+
+  await page.getByRole('button', { name: 'Close claim' }).click();
+
+  await expect(page.getByRole('button', { name: 'Open RNS-2026-0007731' })).toContainText('CLOSED');
+  await expect(page.getByRole('button', { name: 'Close claim' })).toBeDisabled();
+  await expect(page.getByRole('tab', { name: 'Audit' })).toBeVisible();
+
+  expect(state.claims[0].status).toBe('CLOSED');
+  expect(state.audit[0].eventType).toBe('CLAIM_CLOSED');
 });

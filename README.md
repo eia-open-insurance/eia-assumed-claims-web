@@ -29,17 +29,25 @@ Assumed Claims federated remote: screens, widgets, record tabs, and transaction 
   singleton.
 - Every API request sends `X-EIA-Tenant` and `X-EIA-Book: ASSUMED`; the development server
   proxies `/api` to `http://localhost:8090`.
-- Lists assumed claims, creates a claim through the domain service, and displays structured
-  validation errors returned by the domain.
-- Record workbench tabs for the ASSUMED claim: Loss advice (advice history, accept, record advice,
-  bordereau batch ingest), Reserve history (append-only history plus a reserve-change form),
-  Cash calls, Recoveries, Commutation, and Disputes (raise and resolve). The claim status action
-  remains available from the workbench.
+- Operational assumed-claim page built on the shared EIA design: `eia-page-head` with the
+  `Claims · Assumed book` eyebrow and ASSUMED badge, a two-pane `eia-record-layout` register
+  and workbench panel, claim header actions, and a four-card `eia-summary-grid` (current
+  reserve, advised loss, recoveries, cash calls).
+- `Register assumed claim` is a primary page action that opens a focused modal; the workbench
+  no longer keeps an inline create form on the page.
+- Workbench tabs (`eia-tabs` / `eia-tab`): Overview, Loss Advice (advice history, accept,
+  record advice, bordereau ingest), Reserve History (append-only history plus reserve change),
+  Cash Calls, Recoveries, Commutation, Disputes (raise and resolve), and Audit. Claim status
+  transitions, close, financial summary, and the audit trail remain available.
 - Money is rendered from the API's decimal strings; the UI never treats an amount as a float for
   submission (inputs are sent as decimal strings).
+- The canonical `ui.css` is copied from the shell and loaded through `style-loader`/`css-loader`.
+  A small scoped tab-hover guard preserves the shared transparent tab treatment against the
+  global `main button:hover` normalization.
 - `@swc/core` is pinned to exactly `1.10.7`.
-- Three Playwright tests mock the API statefully: the claim register and ASSUMED book header, the
-  loss-advice record/accept flow, and the reserve-history flow with the derived current reserve.
+- Six Playwright tests mock the API statefully: the ASSUMED book wall and operational layout,
+  the register modal, loss-advice record/accept, reserve history with the derived current
+  reserve, every workbench tab including audit, and claim close.
 
 ## Local run
 
@@ -52,7 +60,7 @@ npm test
 
 ## Verification
 
-- Playwright: `npx playwright test` (3 tests).
+- Playwright: `npx playwright test` (6 tests).
 - Production bundle: `npm run build`.
 - Contract tests
 - Security scan and SBOM

@@ -1,0 +1,9 @@
+/*
+ * The shared ui.css normalizes every `main button` with a solid blue hover
+ * background. The tab strip uses the shared `.eia-tabs` / `.eia-tab` treatment,
+ * where hover should only change the label colour. Keep that canonical
+ * treatment by re-asserting a transparent background for tab buttons.
+ */
+.eia-tabs button:hover {
+  background: transparent !important;
+}

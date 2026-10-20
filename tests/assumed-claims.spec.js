@@ -814,3 +814,142 @@ test('keeps the claim workbench rendering with a short contract id fallback', as
   expect(state.contractDetailRequests[0].headers['x-eia-book']).toBe('ASSUMED');
   expect(state.contractDetailRequests[0].headers['x-eia-tenant']).toBe(TENANT);
 });
+
+test('shows Advice as the current assumed claim step and explains the next step', async ({ page }) => {
+  await installWorkspaceMock(page);
+
+  await page.goto('/');
+
+  const stepper = page.getByTestId('claim-progress');
+  await expect(stepper).toBeVisible();
+  await expect(stepper.getByRole('heading', { name: 'Claim progress' })).toBeVisible();
+  await expect(page.locator('.eia-process-label')).toHaveText([
+    'Advice',
+    'Validation',
+    'Reserving',
+    'Cash Call',
+    'Recovery',
+    'Commutation',
+    'Closed'
+  ]);
+  await expect(page.locator('.eia-process-purpose')).toHaveCount(7);
+  await expect(page.getByTestId('process-stage')).toHaveText('Advice · step 1 of 7');
+
+  await expect(page.getByTestId('process-step-advice')).toHaveAttribute('data-state', 'current');
+  await expect(page.getByTestId('process-step-advice')).toHaveAttribute('aria-current', 'step');
+  await expect(page.getByTestId('process-step-validation')).toHaveAttribute('data-state', 'upcoming');
+  await expect(page.getByTestId('process-step-closed')).toHaveAttribute('data-state', 'upcoming');
+  await expect(page.getByTestId('process-next')).toContainText(
+    'Record the cedent loss advice with reported and outstanding amounts; validation follows.'
+  );
+
+  // The existing workbench tabs remain below the stepper.
+  await expect(page.getByRole('tab', { name: 'Loss Advice' })).toBeVisible();
+  await expect(page.getByRole('tab', { name: 'Audit' })).toBeVisible();
+});
+
+test('maps posted advice, reserves, and an approved cash call to the recovery step', async ({ page }) => {
+  const state = await installWorkspaceMock(page);
+  state.claims = [{ ...CLAIM, status: 'RESERVED' }];
+  state.advices = [
+    {
+      id: 'advice-1',
+      adviceNumber: 'ADV-1001',
+      adviceType: 'INITIAL_NOTICE',
+      adviceDate: '2026-09-03',
+      reportedAmount: '250000.0000',
+      currency: 'USD',
+      status: 'POSTED',
+      version: 2
+    }
+  ];
+  state.reserves = [
+    {
+      id: 'reserve-1',
+      component: 'CASE',
+      sequence: 1,
+      amount: '150000.0000',
+      currency: 'USD',
+      effectiveDate: '2026-09-05',
+      reasonCode: 'INITIAL',
+      authority: 'ADJUSTER',
+      isCurrent: true,
+      version: 1
+    }
+  ];
+  state.cashCalls = [
+    {
+      id: 'cash-1',
+      requestNumber: 'CSH-2026-000001',
+      requestedAmount: '100000.0000',
+      currency: 'USD',
+      dueDate: '2026-10-01',
+      status: 'APPROVED',
+      approvalStatus: 'APPROVED',
+      reason: 'CASH_LOSS'
+    }
+  ];
+
+  await page.goto('/');
+  await expect(page.locator('.eia-summary-grid').getByText('$150,000.00')).toBeVisible();
+
+  await expect(page.getByTestId('process-step-advice')).toHaveAttribute('data-state', 'completed');
+  await expect(page.getByTestId('process-step-validation')).toHaveAttribute('data-state', 'completed');
+  await expect(page.getByTestId('process-step-reserving')).toHaveAttribute('data-state', 'completed');
+  await expect(page.getByTestId('process-step-cash-call')).toHaveAttribute('data-state', 'completed');
+  await expect(page.getByTestId('process-step-recovery')).toHaveAttribute('data-state', 'current');
+  await expect(page.getByTestId('process-step-recovery')).toHaveAttribute('aria-current', 'step');
+  await expect(page.getByTestId('process-step-commutation')).toHaveAttribute('data-state', 'upcoming');
+  await expect(page.getByTestId('process-stage')).toHaveText('Recovery · step 5 of 7');
+  await expect(page.getByTestId('process-next')).toContainText(
+    'Pursue retrocession, salvage, or other recoveries and record each receipt against the claim.'
+  );
+
+  // Existing tab behaviour and derived summary stay unchanged.
+  await page.getByRole('tab', { name: 'Reserve History' }).click();
+  await expect(page.getByRole('heading', { name: 'Reserve position' })).toBeVisible();
+  await expect(page.locator('[aria-label="Current reserve total"]')).toHaveText('$150,000.00');
+});
+
+test('shows an executed commutation and the close-out next step', async ({ page }) => {
+  const state = await installWorkspaceMock(page);
+  state.claims = [{ ...CLAIM, status: 'COMMUTED' }];
+  state.commutation = {
+    id: 'commutation-1',
+    commutationNumber: 'COM-2026-0001',
+    status: 'EXECUTED',
+    offerAmount: '800000.0000',
+    acceptedAmount: '750000.0000',
+    currency: 'USD',
+    effectiveDate: '2026-10-01',
+    releaseDocumentId: null,
+    version: 1
+  };
+
+  await page.goto('/');
+
+  await expect(page.getByTestId('process-step-advice')).toHaveAttribute('data-state', 'completed');
+  await expect(page.getByTestId('process-step-recovery')).toHaveAttribute('data-state', 'completed');
+  await expect(page.getByTestId('process-step-commutation')).toHaveAttribute('data-state', 'completed');
+  await expect(page.getByTestId('process-step-closed')).toHaveAttribute('data-state', 'current');
+  await expect(page.getByTestId('process-step-closed')).toHaveAttribute('aria-current', 'step');
+  await expect(page.getByTestId('process-step-closed')).toHaveAttribute('data-complete', 'false');
+  await expect(page.getByTestId('process-stage')).toHaveText('Closed · step 7 of 7');
+  await expect(page.getByTestId('process-next')).toContainText(
+    'The commutation is executed; close the claim when the release is confirmed.'
+  );
+});
+
+test('marks a denied assumed claim on the validation step', async ({ page }) => {
+  const state = await installWorkspaceMock(page);
+  state.claims = [{ ...CLAIM, status: 'DENIED' }];
+
+  await page.goto('/');
+
+  await expect(page.getByTestId('process-step-advice')).toHaveAttribute('data-state', 'completed');
+  await expect(page.getByTestId('process-step-validation')).toHaveAttribute('data-state', 'denied');
+  await expect(page.getByTestId('process-step-validation')).toHaveAttribute('aria-current', 'step');
+  await expect(page.getByTestId('process-step-reserving')).toHaveAttribute('data-state', 'upcoming');
+  await expect(page.getByTestId('process-stage')).toHaveText('Validation · step 2 of 7');
+  await expect(page.getByTestId('process-next')).toContainText('The claim is denied');
+});

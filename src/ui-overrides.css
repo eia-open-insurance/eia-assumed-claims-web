@@ -1,0 +1,237 @@
+/*
+ * Local claim-process stepper treatment for the Assumed Claims workbench.
+ * Kept separate from the copied shared ui.css so the shell stylesheet stays
+ * byte-for-byte aligned with eia-frontend/shell/src/ui.css.
+ */
+
+.eia-process {
+  --eia-process-accent: var(--eia-blue, #1f5f99);
+  --eia-process-done: #1f7a4d;
+  --eia-process-idle: #c9d5e0;
+  background: #fff;
+  border: 1px solid var(--eia-line, #d9e1e9);
+  border-radius: 8px;
+  padding: 13px 15px 12px;
+  margin: 14px 0 0;
+  box-shadow: 0 1px 2px rgba(16, 42, 67, .04);
+}
+
+.eia-process-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.eia-process-title {
+  margin: 0 !important;
+  font-size: 11px !important;
+  line-height: 1.2 !important;
+  font-weight: 700 !important;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--eia-muted, #5b6b7c) !important;
+}
+
+.eia-process-stage {
+  flex: 0 0 auto;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--eia-muted, #5b6b7c);
+  white-space: nowrap;
+}
+
+.eia-process-track {
+  display: grid;
+  grid-template-columns: repeat(var(--eia-process-steps, 7), minmax(118px, 1fr));
+  list-style: none;
+  margin: 0;
+  padding: 0 0 2px;
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+
+.eia-process-step {
+  position: relative;
+  display: block;
+  min-width: 0;
+  padding: 1px 10px 2px 0;
+}
+
+.eia-process-step:not(:last-child)::after {
+  content: '';
+  position: absolute;
+  top: 11px;
+  left: 22px;
+  right: 0;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--eia-process-idle);
+  z-index: 0;
+}
+
+.eia-process-step[data-state='completed']:not(:last-child)::after {
+  background: #9ec6b1;
+}
+
+.eia-process-step[data-state='denied']:not(:last-child)::after {
+  background: #e3b1b1;
+}
+
+.eia-process-marker {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border: 2px solid var(--eia-process-idle);
+  border-radius: 50%;
+  background: #fff;
+  color: #6b7f92;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.eia-process-step[data-state='completed'] .eia-process-marker {
+  border-color: var(--eia-process-done);
+  background: var(--eia-process-done);
+  color: #fff;
+}
+
+.eia-process-step[data-state='current'] .eia-process-marker {
+  border-color: var(--eia-process-accent);
+  background: var(--eia-process-accent);
+  color: #fff;
+  box-shadow: 0 0 0 3px rgba(31, 95, 153, .12);
+}
+
+.eia-process-step[data-state='denied'] .eia-process-marker {
+  border-color: var(--eia-red, #9b1c1c);
+  background: var(--eia-red, #9b1c1c);
+  color: #fff;
+  box-shadow: 0 0 0 3px rgba(155, 28, 28, .10);
+}
+
+.eia-process-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  margin-top: 7px;
+}
+
+.eia-process-label {
+  font-size: 11.5px;
+  font-weight: 700;
+  line-height: 1.25;
+  color: var(--eia-muted, #5b6b7c);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.eia-process-step[data-state='completed'] .eia-process-label {
+  color: var(--eia-navy, #0b2e4f);
+}
+
+.eia-process-step[data-state='current'] .eia-process-label {
+  color: var(--eia-process-accent);
+}
+
+.eia-process-step[data-state='denied'] .eia-process-label {
+  color: var(--eia-red, #9b1c1c);
+}
+
+.eia-process-purpose {
+  font-size: 10px;
+  line-height: 1.35;
+  color: #7a8d9f;
+}
+
+.eia-process-step[data-state='upcoming'] .eia-process-purpose {
+  color: #93a3b2;
+}
+
+.eia-process-next {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin: 10px 0 0 !important;
+  padding-top: 9px;
+  border-top: 1px dashed var(--eia-line, #d9e1e9);
+  color: #496074 !important;
+  font-size: 11.5px;
+  line-height: 1.45;
+}
+
+.eia-process-next b {
+  flex: 0 0 auto;
+  color: var(--eia-navy, #0b2e4f);
+  font-size: 11px;
+  letter-spacing: .01em;
+  white-space: nowrap;
+}
+
+.eia-visually-hidden {
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  padding: 0 !important;
+  margin: -1px !important;
+  overflow: hidden !important;
+  clip: rect(0, 0, 0, 0) !important;
+  white-space: nowrap !important;
+  border: 0 !important;
+}
+
+@media (max-width: 760px) {
+  .eia-process {
+    padding: 12px 12px 10px;
+  }
+
+  .eia-process-track {
+    display: flex;
+    flex-direction: column;
+    overflow: visible;
+  }
+
+  .eia-process-step {
+    display: grid;
+    grid-template-columns: 22px minmax(0, 1fr);
+    column-gap: 8px;
+    padding: 0 0 12px;
+  }
+
+  .eia-process-step:last-child {
+    padding-bottom: 0;
+  }
+
+  .eia-process-step:not(:last-child)::after {
+    top: 24px;
+    right: auto;
+    bottom: 0;
+    left: 10px;
+    width: 2px;
+    height: auto;
+  }
+
+  .eia-process-copy {
+    margin-top: 1px;
+  }
+
+  .eia-process-label {
+    white-space: normal;
+  }
+
+  .eia-process-purpose {
+    white-space: normal;
+  }
+
+  .eia-process-next {
+    flex-direction: column;
+    gap: 2px;
+  }
+}

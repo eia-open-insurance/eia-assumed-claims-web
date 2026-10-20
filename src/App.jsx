@@ -1,10 +1,12 @@
 import React, { useEffect, useRef, useState } from 'react';
+import ClaimProgress from './ClaimProgress.jsx';
 import EntityPicker from './EntityPicker.jsx';
 import { contractEndpoint, contractRecordLabel } from './contract.js';
 import { navigate, recordHref } from './navigation.js';
 import './ui.css';
 import './tabs.css';
 import './workbench.css';
+import './ui-overrides.css';
 
 const TENANT = '11111111-1111-7111-8111-111111111111';
 const BOOK = 'ASSUMED';
@@ -1554,6 +1556,8 @@ export default function App() {
               </div>
 
               {workspaceLoading && <p className="eia-muted" role="status">Loading workbench…</p>}
+
+              <ClaimProgress claim={selectedClaim} resources={resources} />
 
               <div className="eia-tabs" role="tablist" aria-label="Assumed claim sections">
                 {TABS.map((item) => (

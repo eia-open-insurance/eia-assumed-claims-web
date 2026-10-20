@@ -353,9 +353,14 @@ export default function App() {
       await loadClaims();
       const fresh = await api.claims.get(claimId);
       if (fresh?.id) upsertClaim(fresh);
+    } catch {
+      // The assignment already committed; a stale queue/detail refresh must not
+      // turn a successful write into an error banner.
+    }
+    try {
       await loadWorkspace(claimId);
-    } catch (cause) {
-      setError(`Assignment saved, but the claim record could not be refreshed: ${cause.message}`);
+    } catch {
+      setNotice(`${claimNumber || 'Claim'} assigned to ${assignmentText(submitted).display}. Refresh the record to load the latest audit entry.`);
     }
   }
 

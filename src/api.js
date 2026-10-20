@@ -119,6 +119,20 @@ export const api = {
         body: JSON.stringify(body)
       })
   },
+  documents: {
+    /**
+     * Documents linked to one assumed claim. The link type identifies the
+     * claim book; the claim id is the business record the document
+     * association points at. The lookup is a cross-vertical read, so it uses
+     * the full public path rather than the assumed-claims API base.
+     */
+    listLinked: (linkedType, linkedId) =>
+      request(
+        `/api/v1/documents?linkedType=${encodeURIComponent(linkedType)}&linkedId=${encodeURIComponent(
+          linkedId
+        )}`
+      )
+  },
   notes: {
     list: (claimId) => request(`/claims/${encodeURIComponent(claimId)}/notes`),
     create: (claimId, body, key) => createNote(claimId, body, key)

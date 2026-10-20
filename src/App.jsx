@@ -9,6 +9,7 @@ import AssignmentDialog, {
 } from './ClaimAssignment.jsx';
 import ClaimProgress from './ClaimProgress.jsx';
 import DiaryNotesTab from './DiaryNotesTab.jsx';
+import DocumentsCard from './DocumentsCard.jsx';
 import EntityPicker from './EntityPicker.jsx';
 import { contractEndpoint, contractRecordLabel } from './contract.js';
 import { navigate, recordHref } from './navigation.js';
@@ -998,6 +999,8 @@ export default function App() {
             </div>
           )}
         </div>
+
+        <DocumentsCard key={selectedClaim.id} claimId={selectedClaim.id} />
       </>
     );
   }

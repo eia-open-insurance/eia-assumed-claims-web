@@ -235,3 +235,132 @@
     gap: 2px;
   }
 }
+
+/*
+ * Diary & Notes: a fifth summary card plus the operational task table and
+ * note timeline. These rules live in the local overrides so the copied shared
+ * ui.css stays byte-for-byte aligned with the shell stylesheet.
+ */
+
+.eia-summary-grid {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
+/* Overdue diary rows are marked on the row, the due date, and the status cell. */
+main tr.eia-diary-overdue td {
+  background: #fff6f4 !important;
+}
+
+main tr.eia-diary-overdue td:first-child {
+  box-shadow: inset 3px 0 0 var(--eia-red, #9b1c1c);
+}
+
+main tr.eia-diary-overdue:hover td {
+  background: #fdecea !important;
+}
+
+.eia-diary-overdue-date {
+  color: var(--eia-red, #9b1c1c);
+  font-weight: 700;
+}
+
+.eia-diary-title {
+  color: var(--eia-navy, #0b2e4f);
+  font-weight: 600;
+}
+
+.eia-diary-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+/* Claim notes timeline: newest first, with the type, author, and timestamp. */
+.eia-timeline {
+  list-style: none;
+  margin: 12px 0 0;
+  padding: 0;
+}
+
+.eia-timeline-item {
+  position: relative;
+  padding: 0 0 14px 22px;
+}
+
+.eia-timeline-item:last-child {
+  padding-bottom: 0;
+}
+
+.eia-timeline-item::before {
+  content: '';
+  position: absolute;
+  top: 4px;
+  left: 2px;
+  width: 10px;
+  height: 10px;
+  border: 2px solid var(--eia-blue, #1f5f99);
+  border-radius: 50%;
+  background: #fff;
+}
+
+.eia-timeline-item::after {
+  content: '';
+  position: absolute;
+  top: 18px;
+  bottom: 0;
+  left: 7px;
+  width: 2px;
+  background: var(--eia-line, #d9e1e9);
+}
+
+.eia-timeline-item:last-child::after {
+  display: none;
+}
+
+.eia-timeline-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.eia-timeline-meta {
+  font-size: 11px;
+  color: var(--eia-muted, #5b6b7c);
+}
+
+.eia-timeline-meta b {
+  color: var(--eia-navy, #0b2e4f);
+  font-weight: 700;
+}
+
+.eia-timeline-body {
+  margin: 5px 0 0 !important;
+  color: var(--eia-ink, #1b2a3a) !important;
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+
+.eia-form-grid textarea {
+  resize: vertical;
+}
+
+@media (max-width: 1280px) {
+  .eia-summary-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 900px) {
+  .eia-summary-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 700px) {
+  .eia-summary-grid {
+    grid-template-columns: 1fr;
+  }
+}

@@ -1,16 +1,15 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { ApiError, BOOK, api, request } from './api.js';
 import ClaimProgress from './ClaimProgress.jsx';
+import DiaryNotesTab from './DiaryNotesTab.jsx';
 import EntityPicker from './EntityPicker.jsx';
 import { contractEndpoint, contractRecordLabel } from './contract.js';
 import { navigate, recordHref } from './navigation.js';
+import { DataTable, Field } from './ui.jsx';
 import './ui.css';
 import './tabs.css';
 import './workbench.css';
 import './ui-overrides.css';
-
-const TENANT = '11111111-1111-7111-8111-111111111111';
-const BOOK = 'ASSUMED';
-const API_BASE = '/api/v1/assumed-claims';
 
 const EMPTY_CLAIM_FORM = {
   contractId: '',
@@ -33,11 +32,6 @@ const EMPTY_RESOURCES = {
   financials: null
 };
 
-const BASE_HEADERS = {
-  'X-EIA-Tenant': TENANT,
-  'X-EIA-Book': BOOK
-};
-
 const TODAY = new Date().toISOString().slice(0, 10);
 
 const TABS = [
@@ -48,7 +42,8 @@ const TABS = [
   { id: 'recoveries', label: 'Recoveries' },
   { id: 'commutation', label: 'Commutation' },
   { id: 'disputes', label: 'Disputes' },
-  { id: 'audit', label: 'Audit' }
+  { id: 'audit', label: 'Audit' },
+  { id: 'diary', label: 'Diary & Notes' }
 ];
 
 const NEXT_STATUSES = {
@@ -94,44 +89,6 @@ function statusTone(status) {
   return 'blue';
 }
 
-class ApiError extends Error {
-  constructor(message, status) {
-    super(message);
-    this.status = status;
-  }
-}
-
-async function readError(response) {
-  const fallback = `Request failed with status ${response.status}`;
-  try {
-    const body = await response.json();
-    return body?.detail || body?.title || fallback;
-  } catch {
-    return fallback;
-  }
-}
-
-async function request(path, options = {}) {
-  // Workbench routes are relative to the assumed-claims service; cross-vertical
-  // discovery endpoints (contracts, retrocessions) pass their full API path.
-  const url = String(path).startsWith('/api/') ? path : `${API_BASE}${path}`;
-  const response = await fetch(url, {
-    ...options,
-    headers: {
-      ...BASE_HEADERS,
-      ...(options.body ? { 'Content-Type': 'application/json' } : {}),
-      ...options.headers
-    }
-  });
-  if (!response.ok) {
-    throw new ApiError(await readError(response), response.status);
-  }
-  if (response.status === 204) {
-    return null;
-  }
-  return response.json();
-}
-
 async function optional(path) {
   try {
     return await request(path);
@@ -151,6 +108,13 @@ function asList(value) {
 function searchItems(body) {
   if (Array.isArray(body)) return body;
   return asList(body?.items);
+}
+
+/** Open diary items exclude completed and cancelled tasks. */
+function countOpenTasks(rows) {
+  if (!Array.isArray(rows)) return null;
+  const closed = ['COMPLETE', 'CANCELLED'];
+  return rows.filter((row) => !closed.includes(String(row.status || 'OPEN').toUpperCase())).length;
 }
 
 /** Reads the shell deep-link parameters for this remote. */
@@ -229,46 +193,6 @@ function StatusPill({ status }) {
   return <span className={`eia-pill ${statusTone(status)}`}>{status}</span>;
 }
 
-function Field({ label, children, span }) {
-  const className = span ? `eia-field span-${span}` : 'eia-field';
-  return (
-    <label className={className}>
-      <span>{label}</span>
-      {children}
-    </label>
-  );
-}
-
-function DataTable({ columns, rows = [], empty, rowKey, label }) {
-  return (
-    <div className="eia-table-wrap">
-      <table className="eia-table" aria-label={label}>
-        <thead>
-          <tr>
-            {columns.map((item) => (
-              <th key={item.key} align={item.align || 'left'}>{item.label}</th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {rows.length === 0 && (
-            <tr>
-              <td colSpan={columns.length} className="eia-muted">{empty}</td>
-            </tr>
-          )}
-          {rows.map((row, index) => (
-            <tr key={rowKey ? rowKey(row) : index}>
-              {columns.map((item) => (
-                <td key={item.key} align={item.align || 'left'}>{item.render(row)}</td>
-              ))}
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
 const column = (key, label, render, align) => ({ key, label, render, align });
 
 export default function App() {
@@ -287,6 +211,8 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [workspaceLoading, setWorkspaceLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [summary, setSummary] = useState({ openTasks: null });
+  const [summaryNonce, setSummaryNonce] = useState(0);
 
   const claimsRef = useRef([]);
   const selectedIdRef = useRef(null);
@@ -424,6 +350,33 @@ export default function App() {
     selectedIdRef.current = selectedId;
   }, [selectedId]);
 
+  /**
+   * The open-task count is operational summary data, so it is loaded one step
+   * behind the selected claim and refreshed by the Diary & Notes tab whenever a
+   * task is added, completed, or reopened. A failed count leaves the card at
+   * an em dash instead of blocking the rest of the workbench.
+   */
+  useEffect(() => {
+    let alive = true;
+    if (!selectedId) {
+      setSummary({ openTasks: null });
+      return undefined;
+    }
+
+    setSummary({ openTasks: null });
+    api.tasks.list(selectedId)
+      .then((rows) => {
+        if (alive) setSummary({ openTasks: countOpenTasks(rows) });
+      })
+      .catch(() => {
+        if (alive) setSummary({ openTasks: null });
+      });
+
+    return () => {
+      alive = false;
+    };
+  }, [selectedId, summaryNonce]);
+
   useEffect(() => {
     let alive = true;
     async function bootstrap() {
@@ -559,9 +512,14 @@ export default function App() {
     setError('');
     try {
       await reloadClaimsAndWorkspace();
+      refreshDiarySummary();
     } catch (cause) {
       setError(cause.message);
     }
+  }
+
+  function refreshDiarySummary() {
+    setSummaryNonce((value) => value + 1);
   }
 
   function openRegister() {
@@ -1387,6 +1345,7 @@ export default function App() {
       case 'commutation': return renderCommutation();
       case 'disputes': return renderDisputes();
       case 'audit': return renderAudit();
+      case 'diary': return <DiaryNotesTab claim={selectedClaim} onChanged={refreshDiarySummary} />;
       default: return renderOverview();
     }
   }
@@ -1552,6 +1511,13 @@ export default function App() {
                   <h3>Cash calls</h3>
                   <div className="value">{formatMoney(resources.financials?.cashCallAmount, currency)}</div>
                   <div className="eia-metric-label">requested to date</div>
+                </div>
+                <div className="eia-card">
+                  <h3>Open tasks</h3>
+                  <div className="value" data-testid="summary-open-tasks">
+                    {summary.openTasks == null ? '—' : summary.openTasks}
+                  </div>
+                  <div className="eia-metric-label">Open diary items</div>
                 </div>
               </div>
 

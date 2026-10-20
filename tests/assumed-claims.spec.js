@@ -2,13 +2,16 @@ import { test, expect } from '@playwright/test';
 
 const TENANT = '11111111-1111-7111-8111-111111111111';
 const CLAIM_ID = '0192f3a4-5b1c-7e2d-9a3f-6c8d1e0b4a72';
+const SECOND_CLAIM_ID = '0192f3a4-5b1c-7e2d-9a3f-6c8d1e0b4a73';
+const CONTRACT_ID = '22222222-2222-7222-8222-222222222222';
+const RETRO_ID = '33333333-3333-7333-8333-333333333333';
 
 const CLAIM = {
   id: CLAIM_ID,
   tenantId: TENANT,
   businessBook: 'ASSUMED',
   assumedClaimNumber: 'RNS-2026-0007731',
-  contractId: '22222222-2222-7222-8222-222222222222',
+  contractId: CONTRACT_ID,
   cedentClaimNumber: 'CED-778',
   status: 'NOTIFIED',
   lossDate: '2026-09-01',
@@ -25,6 +28,8 @@ const CLAIM = {
 async function installWorkspaceMock(page) {
   const state = {
     claims: [{ ...CLAIM }],
+    archivedClaims: [],
+    searches: [],
     advices: [],
     bordereaux: [],
     reserves: [],
@@ -42,6 +47,24 @@ async function installWorkspaceMock(page) {
       sequence: 1
     }],
     commutation: null,
+    contracts: [{
+      id: CONTRACT_ID,
+      type: 'CONTRACT',
+      label: 'CTR-2026-00042',
+      secondary: 'QUOTA_SHARE · BOUND',
+      status: 'BOUND',
+      href: `/contract?record=${CONTRACT_ID}`
+    }],
+    retrocessions: [{
+      id: RETRO_ID,
+      type: 'RETROCESSION',
+      label: 'RET-2026-00012',
+      secondary: 'ASSUMED · BOUND',
+      status: 'BOUND',
+      href: `/retrocession?record=${RETRO_ID}`
+    }],
+    contractSearches: [],
+    retroSearches: [],
     seenHeaders: []
   };
 
@@ -66,6 +89,40 @@ async function installWorkspaceMock(page) {
     };
   }
 
+  await page.route('**/api/v1/contracts/search**', async (route) => {
+    const request = route.request();
+    const url = new URL(request.url());
+    const query = url.searchParams.get('q') || '';
+    const limit = url.searchParams.get('limit') || '10';
+    state.contractSearches.push({ q: query, limit, headers: request.headers() });
+    const needle = query.toLowerCase();
+    const items = state.contracts.filter((contract) => !needle
+      || contract.label.toLowerCase().includes(needle)
+      || contract.secondary.toLowerCase().includes(needle));
+    return route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ query, limit: Number(limit), items })
+    });
+  });
+
+  await page.route('**/api/v1/retrocessions/search**', async (route) => {
+    const request = route.request();
+    const url = new URL(request.url());
+    const query = url.searchParams.get('q') || '';
+    const limit = url.searchParams.get('limit') || '10';
+    state.retroSearches.push({ q: query, limit, headers: request.headers() });
+    const items = query.toLowerCase().includes(CONTRACT_ID.toLowerCase())
+      || CONTRACT_ID.toLowerCase().includes(query.toLowerCase())
+      ? state.retrocessions
+      : [];
+    return route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ query, limit: Number(limit), items })
+    });
+  });
+
   await page.route('**/api/v1/assumed-claims**', async (route) => {
     const request = route.request();
     const url = new URL(request.url());
@@ -88,6 +145,7 @@ async function installWorkspaceMock(page) {
         ...CLAIM,
         id: '0192f3a4-5b1c-7e2d-9a3f-6c8d1e0b4a99',
         assumedClaimNumber: 'RNS-2026-0007732',
+        contractId: body.contractId || CLAIM.contractId,
         cedentClaimNumber: body.cedentClaimNumber,
         reserveAmount: Number(body.reserveAmount),
         status: 'NOTIFIED',
@@ -95,6 +153,43 @@ async function installWorkspaceMock(page) {
       };
       state.claims = [created, ...state.claims];
       return fulfill(201, created);
+    }
+
+    if (path === '/search' && method === 'GET') {
+      const query = url.searchParams.get('q') || '';
+      const limit = Number(url.searchParams.get('limit') || 10);
+      state.searches.push({ q: query, limit, headers: request.headers() });
+      const needle = query.toLowerCase();
+      const pool = [...state.claims, ...state.archivedClaims];
+      const items = pool
+        .filter((claim) => claim.id === query
+          || claim.assumedClaimNumber.toLowerCase().includes(needle)
+          || String(claim.cedentClaimNumber || '').toLowerCase().includes(needle)
+          || String(claim.contractId || '').toLowerCase().includes(needle))
+        .slice(0, limit)
+        .map((claim) => ({
+          id: claim.id,
+          type: 'ASSUMED_CLAIM',
+          label: claim.assumedClaimNumber,
+          secondary: `${claim.cedentClaimNumber || claim.contractId} · ${claim.status}`,
+          status: claim.status,
+          href: `/assumed-claims?record=${claim.id}`
+        }));
+      return fulfill(200, { query, limit, items });
+    }
+
+    const claimRead = path.match(/^\/claims\/([^/]+)$/);
+    if (claimRead && method === 'GET') {
+      const found = [...state.claims, ...state.archivedClaims]
+        .find((claim) => claim.id === claimRead[1]);
+      return found
+        ? fulfill(200, found)
+        : fulfill(404, {
+          type: 'https://errors.eia.example/not-found',
+          title: 'Not found',
+          status: 404,
+          detail: `No assumed claim ${claimRead[1]}`
+        });
     }
 
     const subresource = path.match(
@@ -311,6 +406,12 @@ async function installWorkspaceMock(page) {
   return state;
 }
 
+async function pickContract(dialog) {
+  const picker = dialog.getByRole('searchbox', { name: /Search contracts by number or type/ });
+  await picker.fill('CTR-2026');
+  await dialog.getByRole('button', { name: /CTR-2026-00042/ }).click();
+}
+
 test('renders the operational assumed claims workbench and scopes requests to the ASSUMED book', async ({ page }) => {
   const state = await installWorkspaceMock(page);
 
@@ -350,6 +451,9 @@ test('registers an assumed claim from the page action instead of an always-open 
   const dialog = page.getByRole('dialog');
   await expect(dialog).toBeVisible();
   await expect(dialog.getByRole('heading', { name: 'Register assumed claim' })).toBeVisible();
+
+  await pickContract(dialog);
+  await expect(dialog.getByText('QUOTA_SHARE')).toBeVisible();
 
   await dialog.getByLabel('Cedent claim number').fill('CED-900');
   await dialog.getByLabel('Loss date').fill('2026-10-01');
@@ -462,4 +566,164 @@ test('closes the selected assumed claim and reflects the new status', async ({ p
 
   expect(state.claims[0].status).toBe('CLOSED');
   expect(state.audit[0].eventType).toBe('CLAIM_CLOSED');
+});
+
+test('opens a deep-linked assumed claim and the create modal from the URL', async ({ page }) => {
+  const state = await installWorkspaceMock(page);
+  state.claims = [
+    CLAIM,
+    {
+      ...CLAIM,
+      id: SECOND_CLAIM_ID,
+      assumedClaimNumber: 'RNS-2026-0007732',
+      cedentClaimNumber: 'CED-779',
+      status: 'OPEN'
+    }
+  ];
+
+  await page.goto(`/?record=${CLAIM_ID}`);
+  await expect(page.getByRole('heading', { name: 'RNS-2026-0007731' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Open RNS-2026-0007731' }))
+    .toHaveAttribute('aria-pressed', 'true');
+
+  await page.getByRole('button', { name: 'Open RNS-2026-0007732' }).click();
+  await expect(page.getByRole('heading', { name: 'RNS-2026-0007732' })).toBeVisible();
+  expect(new URL(page.url()).searchParams.get('record')).toBe(SECOND_CLAIM_ID);
+
+  await page.goBack();
+  await expect(page.getByRole('heading', { name: 'RNS-2026-0007731' })).toBeVisible();
+
+  await page.goto('/?new=1');
+  await expect(page.getByRole('dialog')).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Register assumed claim' })).toBeVisible();
+
+  await page.getByRole('button', { name: 'Cancel' }).click();
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  expect(new URL(page.url()).searchParams.get('new')).toBeNull();
+});
+
+test('resolves a deep link through the assumed claims search projection', async ({ page }) => {
+  const state = await installWorkspaceMock(page);
+  state.claims = [
+    {
+      ...CLAIM,
+      id: SECOND_CLAIM_ID,
+      assumedClaimNumber: 'RNS-2026-0007732',
+      cedentClaimNumber: 'CED-779',
+      status: 'OPEN'
+    }
+  ];
+  state.archivedClaims = [CLAIM];
+
+  await page.goto(`/?record=${CLAIM_ID}`);
+  await expect(page.getByRole('heading', { name: 'RNS-2026-0007731' })).toBeVisible();
+
+  expect(state.searches).toHaveLength(1);
+  expect(state.searches[0].q).toBe(CLAIM_ID);
+  expect(state.searches[0].limit).toBe(25);
+  expect(state.searches[0].headers['x-eia-book']).toBe('ASSUMED');
+  expect(state.searches[0].headers['x-eia-tenant']).toBe(TENANT);
+});
+
+test('filters the assumed claim queue by claim number, cedent reference, or status', async ({ page }) => {
+  const state = await installWorkspaceMock(page);
+  state.claims = [
+    CLAIM,
+    {
+      ...CLAIM,
+      id: SECOND_CLAIM_ID,
+      assumedClaimNumber: 'RNS-2026-0007732',
+      cedentClaimNumber: 'CED-779',
+      status: 'OPEN'
+    }
+  ];
+
+  await page.goto('/');
+  const filter = page.getByRole('searchbox', { name: 'Filter assumed claims' });
+  await expect(filter).toHaveAttribute(
+    'placeholder',
+    'Filter assumed claims by claim number, cedent reference, or status…'
+  );
+
+  await filter.fill('CED-779');
+  await expect(page.getByRole('button', { name: 'Open RNS-2026-0007732' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Open RNS-2026-0007731' })).toHaveCount(0);
+  await expect(page.locator('.eia-record-list-head')).toContainText('1 of 2');
+
+  await filter.fill('open');
+  await expect(page.getByRole('button', { name: 'Open RNS-2026-0007732' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Open RNS-2026-0007731' })).toHaveCount(0);
+
+  await filter.fill('RNS-2026-0007731');
+  await expect(page.getByRole('button', { name: 'Open RNS-2026-0007731' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Open RNS-2026-0007732' })).toHaveCount(0);
+
+  await filter.fill('ZZZ-NO-MATCH');
+  await expect(page.getByText(/No assumed claims match/)).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Open RNS-2026-0007731' })).toHaveCount(0);
+
+  await page.getByRole('button', { name: 'Clear', exact: true }).click();
+  await expect(filter).toHaveValue('');
+  await expect(page.getByRole('button', { name: 'Open RNS-2026-0007731' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Open RNS-2026-0007732' })).toBeVisible();
+});
+
+test('uses predictive contract lookup and posts the selected contract id', async ({ page }) => {
+  const state = await installWorkspaceMock(page);
+
+  await page.goto('/?new=1');
+  const dialog = page.getByRole('dialog');
+  const picker = dialog.getByRole('searchbox', { name: /Search contracts by number or type/ });
+
+  await picker.fill('QUOTA');
+  const option = dialog.getByRole('button', { name: /CTR-2026-00042/ });
+  await expect(option).toBeVisible();
+  await option.click();
+
+  await expect(dialog.getByText('CTR-2026-00042').first()).toBeVisible();
+  await expect(dialog.getByText('QUOTA_SHARE')).toBeVisible();
+  await expect(dialog.getByRole('link', { name: 'Open contract' }))
+    .toHaveAttribute('href', `/contract?record=${CONTRACT_ID}`);
+
+  await dialog.getByLabel('Cedent claim number').fill('CED-901');
+  await dialog.getByLabel('Reserve amount').fill('51000');
+  await dialog.getByRole('button', { name: 'Create assumed claim' }).click();
+  await expect(dialog).toHaveCount(0);
+
+  expect(state.contractSearches).toHaveLength(1);
+  expect(state.contractSearches[0].q).toBe('QUOTA');
+  expect(state.contractSearches[0].limit).toBe('8');
+  expect(state.contractSearches[0].headers['x-eia-book']).toBe('ASSUMED');
+  expect(state.contractSearches[0].headers['x-eia-tenant']).toBe(TENANT);
+  expect(state.claims[0].contractId).toBe(CONTRACT_ID);
+  expect(state.claims[0].cedentClaimNumber).toBe('CED-901');
+});
+
+test('shows contract context, the why-this-matters panel, and related retrocessions', async ({ page }) => {
+  const state = await installWorkspaceMock(page);
+
+  await page.goto('/');
+  await expect(page.getByRole('heading', { name: 'RNS-2026-0007731' })).toBeVisible();
+
+  await expect(page.locator(`a[href="/contract?record=${CONTRACT_ID}"]`).first()).toBeVisible();
+  await expect(page.getByText('Cedent reference').first()).toBeVisible();
+
+  await expect(page.getByRole('heading', { name: 'Why this matters' })).toBeVisible();
+  const panel = page.getByLabel('Why this matters');
+  await expect(panel).toContainText('coverage');
+  await expect(panel).toContainText(/cessions/i);
+  await expect(panel).toContainText(/recoveries/i);
+  await expect(panel).toContainText('SAP FS-RI');
+  await expect(panel).toContainText('system of record');
+  await expect(panel).toContainText('actual reinsurance');
+
+  const retroLink = page.getByRole('link', { name: 'Open retrocession RET-2026-00012' });
+  await expect(retroLink).toBeVisible();
+  await expect(retroLink).toHaveAttribute('href', `/retrocession?record=${RETRO_ID}`);
+
+  await expect.poll(() => state.retroSearches.length).toBe(1);
+  expect(state.retroSearches[0].q).toBe(CONTRACT_ID);
+  expect(state.retroSearches[0].limit).toBe('5');
+  expect(state.retroSearches[0].headers['x-eia-book']).toBe('ASSUMED');
+  expect(state.retroSearches[0].headers['x-eia-tenant']).toBe(TENANT);
 });

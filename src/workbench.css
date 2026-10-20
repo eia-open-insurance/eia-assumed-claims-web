@@ -1,0 +1,71 @@
+/*
+ * Workbench extensions that sit on top of the canonical shell `ui.css`.
+ * Kept local so the copied canonical stylesheet stays byte-for-byte aligned
+ * with `eia-frontend/shell/src/ui.css`.
+ */
+
+/* Prominent queue filter in the record list. */
+.eia-queue-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--eia-line);
+  background: #fbfcfd;
+}
+
+.eia-queue-search input[type='search'] {
+  flex: 1;
+  min-width: 0;
+  margin: 0 !important;
+}
+
+.eia-record-list .eia-queue-clear {
+  flex: 0 0 auto;
+  width: auto !important;
+  background: #fff !important;
+  color: var(--eia-blue) !important;
+  border: 1px solid #b9cde0 !important;
+  border-radius: 5px !important;
+  padding: 5px 9px !important;
+  font-size: 10px !important;
+  font-weight: 700 !important;
+}
+
+.eia-record-list .eia-queue-clear:hover {
+  background: #f2f7fb !important;
+}
+
+.eia-queue-empty {
+  padding: 24px 14px;
+  color: var(--eia-muted);
+  font-size: 12px;
+  text-align: center;
+}
+
+/* Selected contract context in the predictive create form. */
+.eia-contract-selection {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 2px;
+  font-size: 11px;
+  color: var(--eia-muted);
+}
+
+.eia-contract-selection a {
+  color: var(--eia-blue);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.eia-contract-selection a:hover {
+  text-decoration: underline;
+}
+
+/* Related-record links use the canonical chip treatment with a little more room. */
+.eia-related-record .eia-related-meta {
+  color: var(--eia-muted);
+  font-size: 10px;
+}

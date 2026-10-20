@@ -1,13 +1,16 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
+import EntityPicker from './EntityPicker.jsx';
+import { navigate, recordHref } from './navigation.js';
 import './ui.css';
 import './tabs.css';
+import './workbench.css';
 
 const TENANT = '11111111-1111-7111-8111-111111111111';
 const BOOK = 'ASSUMED';
 const API_BASE = '/api/v1/assumed-claims';
 
 const EMPTY_CLAIM_FORM = {
-  contractId: '22222222-2222-7222-8222-222222222222',
+  contractId: '',
   cedentClaimNumber: '',
   lossDate: '',
   reportDate: '',
@@ -106,7 +109,10 @@ async function readError(response) {
 }
 
 async function request(path, options = {}) {
-  const response = await fetch(`${API_BASE}${path}`, {
+  // Workbench routes are relative to the assumed-claims service; cross-vertical
+  // discovery endpoints (contracts, retrocessions) pass their full API path.
+  const url = String(path).startsWith('/api/') ? path : `${API_BASE}${path}`;
+  const response = await fetch(url, {
     ...options,
     headers: {
       ...BASE_HEADERS,
@@ -136,6 +142,53 @@ async function optional(path) {
 
 function asList(value) {
   return Array.isArray(value) ? value : [];
+}
+
+/** Search endpoints return either the shared envelope or a bare list. */
+function searchItems(body) {
+  if (Array.isArray(body)) return body;
+  return asList(body?.items);
+}
+
+/** Reads the shell deep-link parameters for this remote. */
+function readRoute() {
+  if (typeof window === 'undefined' || !window.location) {
+    return { record: null, isNew: false };
+  }
+  const params = new URLSearchParams(window.location.search);
+  return { record: params.get('record'), isNew: params.get('new') === '1' };
+}
+
+/**
+ * Pushes the current shell route with the supplied parameters patched in.
+ * The remote never owns routing: the shell's `popstate` listener swaps remotes,
+ * and this helper only keeps the URL in step with the workbench state.
+ */
+function pushRoute(patch = {}) {
+  if (typeof window === 'undefined' || !window.location) return;
+  const params = new URLSearchParams(window.location.search);
+  if (Object.prototype.hasOwnProperty.call(patch, 'record')) {
+    if (patch.record) params.set('record', patch.record);
+    else params.delete('record');
+  }
+  if (Object.prototype.hasOwnProperty.call(patch, 'isNew')) {
+    if (patch.isNew) params.set('new', '1');
+    else params.delete('new');
+  }
+  const query = params.toString();
+  navigate(`${window.location.pathname}${query ? `?${query}` : ''}`);
+}
+
+function matchesQueueFilter(claim, needle) {
+  if (!needle) return true;
+  return [claim.assumedClaimNumber, claim.cedentClaimNumber, claim.status]
+    .some((value) => value !== null && value !== undefined
+      && String(value).toLowerCase().includes(needle));
+}
+
+function contractTypeOf(item) {
+  const descriptor = String(item?.secondary || '').split('·')[0].trim();
+  return descriptor || item?.type || 'CONTRACT';
 }
 
 function formatMoney(amount, currency) {
@@ -220,16 +273,29 @@ export default function App() {
   const [claimForm, setClaimForm] = useState(EMPTY_CLAIM_FORM);
   const [selectedId, setSelectedId] = useState(null);
   const [tab, setTab] = useState('overview');
-  const [registerOpen, setRegisterOpen] = useState(false);
+  const [registerOpen, setRegisterOpen] = useState(() => readRoute().isNew);
+  const [contractPick, setContractPick] = useState(null);
+  const [queueFilter, setQueueFilter] = useState('');
+  const [relatedRetrocessions, setRelatedRetrocessions] = useState([]);
+  const [relatedLoading, setRelatedLoading] = useState(false);
   const [resources, setResources] = useState(EMPTY_RESOURCES);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
   const [workspaceLoading, setWorkspaceLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
+  const claimsRef = useRef([]);
+  const selectedIdRef = useRef(null);
+  const openRecordRef = useRef(null);
+
   const selectedClaim = claims.find((claim) => claim.id === selectedId) || null;
   const currency = resources.financials?.currency || selectedClaim?.reserveCurrency || 'USD';
   const nextStatuses = selectedClaim ? NEXT_STATUSES[selectedClaim.status] || [] : [];
+  const queueNeedle = queueFilter.trim().toLowerCase();
+  const filteredClaims = queueNeedle
+    ? claims.filter((claim) => matchesQueueFilter(claim, queueNeedle))
+    : claims;
+  const selectedContractId = selectedClaim?.contractId || null;
 
   const [adviceForm, setAdviceForm] = useState({
     adviceNumber: '', adviceType: 'INITIAL_NOTICE', adviceDate: TODAY,
@@ -252,6 +318,7 @@ export default function App() {
   async function loadClaims() {
     const body = await request('/claims');
     const list = asList(body);
+    claimsRef.current = list;
     setClaims(list);
     return list;
   }
@@ -287,14 +354,82 @@ export default function App() {
     }
   }
 
+  function rememberClaim(claim) {
+    if (!claim?.id) return claim;
+    const next = [claim, ...claimsRef.current.filter((entry) => entry.id !== claim.id)];
+    claimsRef.current = next;
+    setClaims(next);
+    return claim;
+  }
+
+  /**
+   * Record discovery for a `?record=` deep link that is not in the loaded queue.
+   * The assumed-claims search projection resolves the id, then the canonical
+   * claim read loads the record so the workbench can render it.
+   */
+  async function discoverRecord(recordId) {
+    try {
+      const body = await request(`/search?q=${encodeURIComponent(recordId)}&limit=25`);
+      const items = searchItems(body);
+      const match = items.find((item) => item.id === recordId)
+        || items.find((item) => String(item.href || '').includes(recordId));
+      if (!match?.id) return null;
+      const existing = claimsRef.current.find((claim) => claim.id === match.id);
+      if (existing) return existing;
+      const claim = await request(`/claims/${encodeURIComponent(match.id)}`);
+      return claim?.id ? rememberClaim(claim) : null;
+    } catch {
+      return null;
+    }
+  }
+
+  function openRecord(claimId) {
+    const claim = claimsRef.current.find((entry) => entry.id === claimId);
+    if (!claim) return false;
+    if (selectedIdRef.current === claim.id) return true;
+
+    selectedIdRef.current = claim.id;
+    setSelectedId(claim.id);
+    setTab('overview');
+    setError('');
+    setStatusTarget('');
+    setResources(EMPTY_RESOURCES);
+    loadWorkspace(claim.id).catch((cause) => setError(cause.message));
+    return true;
+  }
+
+  async function openRecordById(recordId) {
+    if (!recordId) return false;
+    if (openRecord(recordId)) return true;
+    const discovered = await discoverRecord(recordId);
+    return discovered ? openRecord(discovered.id) : false;
+  }
+
+  openRecordRef.current = openRecord;
+
+  useEffect(() => {
+    selectedIdRef.current = selectedId;
+  }, [selectedId]);
+
   useEffect(() => {
     let alive = true;
     async function bootstrap() {
       try {
         const list = await loadClaims();
-        if (!alive || list.length === 0) return;
-        setSelectedId(list[0].id);
-        await loadWorkspace(list[0].id);
+        if (!alive) return;
+        const route = readRoute();
+        let opened = false;
+        if (route.record) {
+          opened = await openRecordById(route.record);
+        }
+        if (!alive) return;
+        if (!opened && list.length > 0) {
+          opened = openRecord(list[0].id);
+        }
+        if (!opened && route.record) {
+          setError(`The linked assumed claim ${route.record} could not be found on the ASSUMED book.`);
+        }
+        if (route.isNew) setRegisterOpen(true);
       } catch (cause) {
         if (alive) setError(cause.message);
       } finally {
@@ -306,13 +441,56 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    const onPopState = () => {
+      const route = readRoute();
+      setRegisterOpen(route.isNew);
+      if (route.record) {
+        const current = claimsRef.current.find((claim) => claim.id === route.record);
+        if (current) openRecordRef.current(current.id);
+        else openRecordById(route.record).then((opened) => {
+          if (!opened) {
+            setError(`The linked assumed claim ${route.record} could not be found on the ASSUMED book.`);
+          }
+        }).catch(() => {});
+      }
+    };
+    window.addEventListener('popstate', onPopState);
+    return () => window.removeEventListener('popstate', onPopState);
+  }, []);
+
+  useEffect(() => {
     if (!registerOpen) return undefined;
     const closeOnEscape = (event) => {
-      if (event.key === 'Escape') setRegisterOpen(false);
+      if (event.key === 'Escape' && !submitting) {
+        setRegisterOpen(false);
+        pushRoute({ isNew: false });
+      }
     };
     window.addEventListener('keydown', closeOnEscape);
     return () => window.removeEventListener('keydown', closeOnEscape);
-  }, [registerOpen]);
+  }, [registerOpen, submitting]);
+
+  useEffect(() => {
+    if (!selectedContractId) {
+      setRelatedRetrocessions([]);
+      setRelatedLoading(false);
+      return undefined;
+    }
+    let alive = true;
+    setRelatedLoading(true);
+    setRelatedRetrocessions([]);
+    request(`/api/v1/retrocessions/search?q=${encodeURIComponent(selectedContractId)}&limit=5`)
+      .then((body) => {
+        if (alive) setRelatedRetrocessions(searchItems(body).filter(Boolean));
+      })
+      .catch(() => {
+        if (alive) setRelatedRetrocessions([]);
+      })
+      .finally(() => {
+        if (alive) setRelatedLoading(false);
+      });
+    return () => { alive = false; };
+  }, [selectedContractId]);
 
   function update(setter, field) {
     return (event) => setter((current) => ({ ...current, [field]: event.target.value }));
@@ -326,11 +504,13 @@ export default function App() {
       return;
     }
     if (list.length > 0) {
+      selectedIdRef.current = list[0].id;
       setSelectedId(list[0].id);
       setTab('overview');
       await loadWorkspace(list[0].id);
       return;
     }
+    selectedIdRef.current = null;
     setSelectedId(null);
     setResources(EMPTY_RESOURCES);
   }
@@ -345,33 +525,58 @@ export default function App() {
   }
 
   function openRegister() {
-    setClaimForm((current) => ({ ...EMPTY_CLAIM_FORM, contractId: current.contractId }));
+    setClaimForm(EMPTY_CLAIM_FORM);
+    setContractPick(null);
     setError('');
     setRegisterOpen(true);
+    pushRoute({ isNew: true });
+  }
+
+  function closeRegister() {
+    if (submitting) return;
+    setRegisterOpen(false);
+    setError('');
+    pushRoute({ isNew: false });
   }
 
   async function submitClaim(event) {
     event.preventDefault();
     setError('');
+    if (!claimForm.contractId) {
+      setError('Select the assumed contract that governs this claim before registering it.');
+      return;
+    }
     setSubmitting(true);
     try {
       const created = await request('/claims', {
         method: 'POST',
         body: JSON.stringify({
           ...claimForm,
+          contractId: claimForm.contractId,
           cedentClaimNumber: claimForm.cedentClaimNumber || null,
           lossDate: claimForm.lossDate || null,
           reportDate: claimForm.reportDate || null,
           reserveAmount: claimForm.reserveAmount
         })
       });
-      setClaimForm((current) => ({ ...EMPTY_CLAIM_FORM, contractId: current.contractId }));
+      setClaimForm(EMPTY_CLAIM_FORM);
+      setContractPick(null);
       setRegisterOpen(false);
-      await loadClaims();
+      setQueueFilter('');
+      const list = await loadClaims();
       if (created?.id) {
+        const next = list.some((claim) => claim.id === created.id)
+          ? list
+          : [created, ...list];
+        claimsRef.current = next;
+        setClaims(next);
+        selectedIdRef.current = created.id;
         setSelectedId(created.id);
         setTab('overview');
         await loadWorkspace(created.id);
+        pushRoute({ record: created.id, isNew: false });
+      } else {
+        pushRoute({ isNew: false });
       }
     } catch (cause) {
       setError(cause.message);
@@ -380,17 +585,9 @@ export default function App() {
     }
   }
 
-  async function selectClaim(claim) {
-    setSelectedId(claim.id);
-    setTab('overview');
-    setError('');
-    setStatusTarget('');
-    setResources(EMPTY_RESOURCES);
-    try {
-      await loadWorkspace(claim.id);
-    } catch (cause) {
-      setError(cause.message);
-    }
+  function selectClaim(claim) {
+    openRecord(claim.id);
+    pushRoute({ record: claim.id, isNew: false });
   }
 
   async function mutate(path, body, method = 'POST') {
@@ -547,7 +744,20 @@ export default function App() {
     }
   }
 
+  function followInternalLink(event, href) {
+    if (!href) return;
+    if (event.defaultPrevented || event.button !== 0
+      || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) {
+      return;
+    }
+    event.preventDefault();
+    navigate(href);
+  }
+
   function renderOverview() {
+    const contractHref = selectedClaim.contractId
+      ? recordHref('contract', selectedClaim.contractId)
+      : null;
     return (
       <>
         <div className="eia-section-title">
@@ -558,12 +768,24 @@ export default function App() {
           <dl className="eia-kv">
             <dt>Assumed claim</dt>
             <dd className="eia-mono">{selectedClaim.assumedClaimNumber}</dd>
-            <dt>Cedent claim</dt>
+            <dt>Cedent reference</dt>
             <dd>{selectedClaim.cedentClaimNumber || '—'}</dd>
             <dt>Status</dt>
             <dd><StatusPill status={selectedClaim.status} /></dd>
-            <dt>Contract</dt>
-            <dd className="eia-mono" title={selectedClaim.contractId}>{selectedClaim.contractId || '—'}</dd>
+            <dt>Assumed contract</dt>
+            <dd>
+              {contractHref ? (
+                <a
+                  href={contractHref}
+                  className="eia-mono"
+                  title={selectedClaim.contractId}
+                  aria-label={`Open assumed contract ${selectedClaim.contractId}`}
+                  onClick={(event) => followInternalLink(event, contractHref)}
+                >
+                  {selectedClaim.contractId}
+                </a>
+              ) : '—'}
+            </dd>
             <dt>Loss date</dt>
             <dd>{selectedClaim.lossDate || '—'}</dd>
             <dt>Report date</dt>
@@ -575,6 +797,26 @@ export default function App() {
             <dt>Last advice</dt>
             <dd>{formatTimestamp(resources.financials?.lastAdviceAt)}</dd>
           </dl>
+        </div>
+
+        <div className="eia-context-panel" aria-label="Why this matters">
+          <h4>Why this matters</h4>
+          <p>
+            The assumed contract is the governing instrument for this claim: its terms, limits, and
+            conditions determine coverage and drive the cessions and recoveries recorded against the
+            claim. Retrocession is administered separately, and SAP FS-RI remains the system of record
+            for the actual reinsurance amounts, recoverables, and statements.
+          </p>
+          {contractHref && (
+            <div className="links">
+              <a
+                href={contractHref}
+                onClick={(event) => followInternalLink(event, contractHref)}
+              >
+                Open the assumed contract
+              </a>
+            </div>
+          )}
         </div>
 
         <div className="eia-section-title">
@@ -600,6 +842,60 @@ export default function App() {
             <dt>Advised loss</dt>
             <dd>{formatMoney(resources.financials?.advisedLossAmount, currency)}</dd>
           </dl>
+        </div>
+
+        <div className="eia-section-title">
+          <h2>Related records</h2>
+          <span className="eia-muted">ASSUMED book context</span>
+        </div>
+        <div className="eia-card" aria-label="Related records">
+          <dl className="eia-kv">
+            <dt>Assumed contract</dt>
+            <dd>
+              {contractHref ? (
+                <a
+                  href={contractHref}
+                  className="eia-mono"
+                  title={selectedClaim.contractId}
+                  aria-label={`Open related contract ${selectedClaim.contractId}`}
+                  onClick={(event) => followInternalLink(event, contractHref)}
+                >
+                  {selectedClaim.contractId}
+                </a>
+              ) : '—'}
+            </dd>
+            <dt>Cedent reference</dt>
+            <dd>{selectedClaim.cedentClaimNumber || '—'}</dd>
+          </dl>
+
+          <div className="eia-section-title" style={{ margin: '14px 0 6px' }}>
+            <h3 style={{ margin: 0 }}>Related retrocessions</h3>
+            {relatedLoading && <span className="eia-muted">Loading…</span>}
+          </div>
+          {!relatedLoading && relatedRetrocessions.length === 0 && (
+            <p className="eia-muted" style={{ margin: 0, fontSize: 12 }}>
+              No retrocession records reference this contract yet.
+            </p>
+          )}
+          {relatedRetrocessions.length > 0 && (
+            <div className="eia-related-list">
+              {relatedRetrocessions.map((retro) => {
+                const href = retro.href || recordHref('retrocession', retro.id);
+                return (
+                  <a
+                    key={retro.id || href}
+                    className="eia-related-record"
+                    href={href}
+                    aria-label={`Open retrocession ${retro.label}`}
+                    onClick={(event) => followInternalLink(event, href)}
+                  >
+                    <b>{retro.label}</b>
+                    {retro.secondary && <span className="eia-related-meta">{retro.secondary}</span>}
+                  </a>
+                );
+              })}
+            </div>
+          )}
         </div>
       </>
     );
@@ -1089,14 +1385,42 @@ export default function App() {
           <div className="eia-record-list-head">
             <strong>Assumed claims</strong>
             <span className="eia-muted">
-              {loading ? 'Loading…' : `${claims.length} record${claims.length === 1 ? '' : 's'}`}
+              {loading
+                ? 'Loading…'
+                : queueNeedle
+                  ? `${filteredClaims.length} of ${claims.length}`
+                  : `${claims.length} record${claims.length === 1 ? '' : 's'}`}
             </span>
+          </div>
+          <div className="eia-queue-search">
+            <input
+              type="search"
+              value={queueFilter}
+              onChange={(event) => setQueueFilter(event.target.value)}
+              placeholder="Filter assumed claims by claim number, cedent reference, or status…"
+              aria-label="Filter assumed claims"
+              autoComplete="off"
+            />
+            {queueFilter && (
+              <button
+                type="button"
+                className="eia-queue-clear"
+                onClick={() => setQueueFilter('')}
+              >
+                Clear
+              </button>
+            )}
           </div>
           {loading && <div className="empty">Loading assumed claims…</div>}
           {!loading && claims.length === 0 && (
             <div className="empty">No assumed claims recorded yet. Use Register assumed claim to create the first record.</div>
           )}
-          {!loading && claims.map((claim) => (
+          {!loading && claims.length > 0 && filteredClaims.length === 0 && (
+            <div className="eia-queue-empty">
+              No assumed claims match “{queueFilter.trim()}”.
+            </div>
+          )}
+          {!loading && filteredClaims.map((claim) => (
             <button
               key={claim.id}
               type="button"
@@ -1215,7 +1539,7 @@ export default function App() {
         <div
           style={MODAL_BACKDROP}
           onMouseDown={(event) => {
-            if (event.target === event.currentTarget) setRegisterOpen(false);
+            if (event.target === event.currentTarget) closeRegister();
           }}
         >
           <section
@@ -1228,11 +1552,11 @@ export default function App() {
               <div>
                 <h2 id="register-claim-title">Register assumed claim</h2>
                 <p className="eia-record-subtitle">
-                  Create the reinsurer claim record from a cedent notice. The ASSUMED book scope is applied
-                  to every request.
+                  Create the reinsurer claim record from a cedent notice. Pick the governing assumed
+                  contract; the ASSUMED book scope is applied to every request.
                 </p>
               </div>
-              <button type="button" className="eia-btn-ghost" onClick={() => setRegisterOpen(false)}>
+              <button type="button" className="eia-btn-ghost" onClick={closeRegister} disabled={submitting}>
                 Cancel
               </button>
             </div>
@@ -1240,13 +1564,37 @@ export default function App() {
             {error && <p role="alert" style={{ margin: '10px 0 14px' }}>{error}</p>}
 
             <form aria-label="Register assumed claim" className="eia-form-grid" onSubmit={submitClaim}>
-              <Field label="Contract ID">
-                <input
+              <Field label="Assumed contract">
+                <EntityPicker
+                  endpoint="/api/v1/contracts/search"
+                  book={BOOK}
                   value={claimForm.contractId}
-                  onChange={update(setClaimForm, 'contractId')}
-                  autoFocus
-                  required
+                  valueLabel={contractPick?.label || claimForm.contractId}
+                  onChange={(id, item) => {
+                    setContractPick(item || null);
+                    setClaimForm((current) => ({ ...current, contractId: id }));
+                  }}
+                  placeholder="Search contracts by number or type…"
+                  disabled={submitting}
                 />
+                {contractPick && (
+                  <span className="eia-contract-selection">
+                    <span>
+                      <strong>{contractPick.label}</strong>
+                      {' · '}
+                      {contractTypeOf(contractPick)}
+                    </span>
+                    <a
+                      href={contractPick.href || recordHref('contract', contractPick.id)}
+                      onClick={(event) => followInternalLink(
+                        event,
+                        contractPick.href || recordHref('contract', contractPick.id)
+                      )}
+                    >
+                      Open contract
+                    </a>
+                  </span>
+                )}
               </Field>
               <Field label="Cedent claim number">
                 <input value={claimForm.cedentClaimNumber} onChange={update(setClaimForm, 'cedentClaimNumber')} placeholder="CED-778" />

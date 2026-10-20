@@ -14,5 +14,10 @@
   badge, two-pane record register/workbench, claim header, summary grid, and tabs for overview,
   loss advice, reserve history, cash calls, recoveries, commutation, disputes, and audit.
 - Claim register/create moved into a modal action; close-claim and audit endpoints are wired.
+- Record discovery via `?record=` / `?new=1` and `popstate`, with the assumed-claims search
+  projection as the deep-link fallback.
+- Queue filter plus predictive assumed-contract lookup through the shared `EntityPicker`.
+- Overview cross-links, the "Why this matters" panel, and related retrocessions by contract id.
 - Playwright flows for the ASSUMED book wall and layout, register, loss-advice record/accept,
-  reserve history, all tabs, and close.
+  reserve history, all tabs, close, URL entry, queue filtering, contract selection, and
+  cross-links.

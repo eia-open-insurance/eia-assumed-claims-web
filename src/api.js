@@ -46,14 +46,59 @@ export async function request(path, options = {}) {
   return response.json();
 }
 
+/**
+ * Stable key for one logical create attempt. `crypto.randomUUID` is available
+ * in every supported browser; the fallback keeps the v4 shape for older
+ * webviews so the server always receives a valid UUID.
+ */
+export function newIdempotencyKey() {
+  const source = globalThis.crypto;
+  if (source && typeof source.randomUUID === 'function') {
+    return source.randomUUID();
+  }
+  const bytes = new Uint8Array(16);
+  if (source && typeof source.getRandomValues === 'function') {
+    source.getRandomValues(bytes);
+  } else {
+    for (let index = 0; index < bytes.length; index += 1) {
+      bytes[index] = Math.floor(Math.random() * 256);
+    }
+  }
+  bytes[6] = (bytes[6] & 0x0f) | 0x40;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  const hex = Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('');
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(
+    16,
+    20
+  )}-${hex.slice(20)}`;
+}
+
+function idempotencyHeaders(key) {
+  return key ? { 'Idempotency-Key': key } : {};
+}
+
+/** Create a diary task; `key` is optional for callers that do not retry. */
+export function createTask(claimId, body, key) {
+  return request(`/claims/${encodeURIComponent(claimId)}/tasks`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+    headers: idempotencyHeaders(key)
+  });
+}
+
+/** Create a claim note; `key` is optional for callers that do not retry. */
+export function createNote(claimId, body, key) {
+  return request(`/claims/${encodeURIComponent(claimId)}/notes`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+    headers: idempotencyHeaders(key)
+  });
+}
+
 export const api = {
   tasks: {
     list: (claimId) => request(`/claims/${encodeURIComponent(claimId)}/tasks`),
-    create: (claimId, body) =>
-      request(`/claims/${encodeURIComponent(claimId)}/tasks`, {
-        method: 'POST',
-        body: JSON.stringify(body)
-      }),
+    create: (claimId, body, key) => createTask(claimId, body, key),
     update: (claimId, taskId, body) =>
       request(`/claims/${encodeURIComponent(claimId)}/tasks/${encodeURIComponent(taskId)}`, {
         method: 'PATCH',
@@ -62,11 +107,7 @@ export const api = {
   },
   notes: {
     list: (claimId) => request(`/claims/${encodeURIComponent(claimId)}/notes`),
-    create: (claimId, body) =>
-      request(`/claims/${encodeURIComponent(claimId)}/notes`, {
-        method: 'POST',
-        body: JSON.stringify(body)
-      })
+    create: (claimId, body, key) => createNote(claimId, body, key)
   }
 };
 

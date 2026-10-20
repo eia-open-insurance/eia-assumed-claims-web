@@ -1,5 +1,5 @@
-import React, { useEffect, useState } from 'react';
-import { api, today } from './api.js';
+import React, { useEffect, useRef, useState } from 'react';
+import { api, createNote, createTask, newIdempotencyKey, today } from './api.js';
 import { DataTable, ErrorText, Field, Panel, shortId } from './ui.jsx';
 
 const EMPTY_TASK = {
@@ -148,6 +148,13 @@ export default function DiaryNotesTab({ claim, onChanged }) {
   const [noteError, setNoteError] = useState('');
   const [noteSubmitting, setNoteSubmitting] = useState(false);
 
+  // One key per create attempt. Refs keep the value stable even when a second
+  // submit races the first before React has re-rendered. A successful create
+  // clears the key so the next create gets a fresh one; a failed or replayed
+  // attempt keeps it so the retry is idempotent.
+  const taskKeyRef = useRef(null);
+  const noteKeyRef = useRef(null);
+
   async function load() {
     const [taskRows, noteRows] = await Promise.all([
       api.tasks.list(claim.id),
@@ -198,6 +205,7 @@ export default function DiaryNotesTab({ claim, onChanged }) {
   function openTaskModal() {
     setTaskForm({ ...EMPTY_TASK, dueDate: today() });
     setTaskError('');
+    taskKeyRef.current = newIdempotencyKey();
     setTaskOpen(true);
   }
 
@@ -238,20 +246,27 @@ export default function DiaryNotesTab({ claim, onChanged }) {
     }
 
     setTaskSubmitting(true);
+    const key = taskKeyRef.current || (taskKeyRef.current = newIdempotencyKey());
     try {
-      await api.tasks.create(claim.id, {
-        title: taskForm.title.trim(),
-        description: taskForm.description.trim() || null,
-        dueDate: taskForm.dueDate,
-        priority: taskForm.priority,
-        assignedTo: taskForm.assignedTo.trim() || null
-      });
+      await createTask(
+        claim.id,
+        {
+          title: taskForm.title.trim(),
+          description: taskForm.description.trim() || null,
+          dueDate: taskForm.dueDate,
+          priority: taskForm.priority,
+          assignedTo: taskForm.assignedTo.trim() || null
+        },
+        key
+      );
     } catch (cause) {
       setTaskError(describeError(cause));
       setTaskSubmitting(false);
       return;
     }
 
+    // The create is committed: the next task is a new logical request.
+    taskKeyRef.current = null;
     setTaskOpen(false);
     setTaskForm(EMPTY_TASK);
     try {
@@ -292,13 +307,16 @@ export default function DiaryNotesTab({ claim, onChanged }) {
     }
 
     setNoteSubmitting(true);
+    const key = noteKeyRef.current || (noteKeyRef.current = newIdempotencyKey());
     try {
       const payload = {
         noteType: noteForm.noteType,
         author: noteForm.author.trim(),
         body: noteForm.body.trim()
       };
-      const created = await api.notes.create(claim.id, payload);
+      const created = await createNote(claim.id, payload, key);
+      // Only a committed note consumes its key; a retry after a failure reuses it.
+      noteKeyRef.current = null;
       const note = created && typeof created === 'object' ? created : noteFallback(payload);
       // Newest first: the new note is placed directly at the top of the timeline.
       setNotes((current) => [note, ...current.filter((row) => row.id !== note.id)]);

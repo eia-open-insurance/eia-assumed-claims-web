@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import EntityPicker from './EntityPicker.jsx';
+import { contractEndpoint, contractRecordLabel } from './contract.js';
 import { navigate, recordHref } from './navigation.js';
 import './ui.css';
 import './tabs.css';
@@ -278,6 +279,7 @@ export default function App() {
   const [queueFilter, setQueueFilter] = useState('');
   const [relatedRetrocessions, setRelatedRetrocessions] = useState([]);
   const [relatedLoading, setRelatedLoading] = useState(false);
+  const [contractLookup, setContractLookup] = useState({ contractId: null, contract: null });
   const [resources, setResources] = useState(EMPTY_RESOURCES);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
@@ -296,6 +298,15 @@ export default function App() {
     ? claims.filter((claim) => matchesQueueFilter(claim, queueNeedle))
     : claims;
   const selectedContractId = selectedClaim?.contractId || null;
+  const contractHref = selectedContractId
+    ? recordHref('contract', selectedContractId)
+    : null;
+  const resolvedContract = contractLookup.contractId === selectedContractId
+    ? contractLookup.contract
+    : null;
+  const contractLabel = selectedContractId
+    ? contractRecordLabel(resolvedContract) || shortId(selectedContractId)
+    : '—';
 
   const [adviceForm, setAdviceForm] = useState({
     adviceNumber: '', adviceType: 'INITIAL_NOTICE', adviceDate: TODAY,
@@ -488,6 +499,33 @@ export default function App() {
       })
       .finally(() => {
         if (alive) setRelatedLoading(false);
+      });
+    return () => { alive = false; };
+  }, [selectedContractId]);
+
+  /**
+   * Resolves the governing contract after the claim is already on screen, so the
+   * cross-links can show "QS-2026-00042 · QUOTA_SHARE" instead of a bare UUID.
+   * The lookup is an enhancement: while it is in flight, or if it fails, the
+   * links fall back to the short contract id without blocking the workbench.
+   */
+  useEffect(() => {
+    if (!selectedContractId) {
+      setContractLookup({ contractId: null, contract: null });
+      return undefined;
+    }
+    let alive = true;
+    setContractLookup({ contractId: selectedContractId, contract: null });
+    request(contractEndpoint(selectedContractId))
+      .then((contract) => {
+        if (alive) {
+          setContractLookup({ contractId: selectedContractId, contract: contract || null });
+        }
+      })
+      .catch(() => {
+        if (alive) {
+          setContractLookup({ contractId: selectedContractId, contract: null });
+        }
       });
     return () => { alive = false; };
   }, [selectedContractId]);
@@ -755,9 +793,6 @@ export default function App() {
   }
 
   function renderOverview() {
-    const contractHref = selectedClaim.contractId
-      ? recordHref('contract', selectedClaim.contractId)
-      : null;
     return (
       <>
         <div className="eia-section-title">
@@ -779,10 +814,10 @@ export default function App() {
                   href={contractHref}
                   className="eia-mono"
                   title={selectedClaim.contractId}
-                  aria-label={`Open assumed contract ${selectedClaim.contractId}`}
+                  data-testid="contract-link-overview"
                   onClick={(event) => followInternalLink(event, contractHref)}
                 >
-                  {selectedClaim.contractId}
+                  {contractLabel}
                 </a>
               ) : '—'}
             </dd>
@@ -809,11 +844,14 @@ export default function App() {
           </p>
           {contractHref && (
             <div className="links">
+              <span className="eia-muted" style={{ fontSize: 11 }}>Open the assumed contract:</span>
               <a
                 href={contractHref}
+                title={selectedClaim.contractId}
+                data-testid="contract-link-context"
                 onClick={(event) => followInternalLink(event, contractHref)}
               >
-                Open the assumed contract
+                {contractLabel}
               </a>
             </div>
           )}
@@ -857,10 +895,10 @@ export default function App() {
                   href={contractHref}
                   className="eia-mono"
                   title={selectedClaim.contractId}
-                  aria-label={`Open related contract ${selectedClaim.contractId}`}
+                  data-testid="contract-link-related"
                   onClick={(event) => followInternalLink(event, contractHref)}
                 >
-                  {selectedClaim.contractId}
+                  {contractLabel}
                 </a>
               ) : '—'}
             </dd>
@@ -1450,7 +1488,18 @@ export default function App() {
                   <h2>{selectedClaim.assumedClaimNumber}</h2>
                   <p className="eia-record-subtitle">
                     Cedent claim <strong>{selectedClaim.cedentClaimNumber || '—'}</strong>
-                    {' '}· Contract <span className="eia-mono" title={selectedClaim.contractId}>{shortId(selectedClaim.contractId)}</span>
+                    {' '}· Contract{' '}
+                    {contractHref ? (
+                      <a
+                        href={contractHref}
+                        className="eia-mono"
+                        title={selectedClaim.contractId}
+                        data-testid="contract-link-header"
+                        onClick={(event) => followInternalLink(event, contractHref)}
+                      >
+                        {contractLabel}
+                      </a>
+                    ) : shortId(selectedClaim.contractId)}
                     {' '}· Version {selectedClaim.version}
                   </p>
                 </div>

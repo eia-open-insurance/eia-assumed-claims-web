@@ -15,7 +15,8 @@ The format is based on Keep a Changelog and the project uses Semantic Versioning
 - Prominent queue filter across claim number, cedent reference, and status with a live count and Clear action.
 - Predictive contract lookup in the register modal via the shared `EntityPicker` (`/api/v1/contracts/search`, ASSUMED book), showing the contract number/type and linking to `/contract?record=<id>`.
 - Overview cross-links: governing contract, cedent reference, a "Why this matters" panel covering coverage, cessions/recoveries, and SAP FS-RI as the system of record, plus related retrocessions fetched by contract id.
-- Five additional Playwright tests cover URL entry/popstate, search-projection record discovery, queue filtering, contract-picker selection and post payload, and the Overview cross-links (11 total).
+- Cross-link transparency: the selected claim resolves its governing contract through `GET /api/v1/contracts/{contractId}` on the ASSUMED book and renders `<contractNumber> · <contractType>` in the header, Overview, context panel, and related records. The short UUID stays visible while the lookup loads or fails, so record rendering is never blocked.
+- Five additional Playwright tests cover URL entry/popstate, search-projection record discovery, queue filtering, contract-picker selection and post payload, and the Overview cross-links (13 total, including contract-label resolution and fallback).
 
 ### Changed
 

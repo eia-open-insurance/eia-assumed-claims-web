@@ -5,6 +5,8 @@ const CLAIM_ID = '0192f3a4-5b1c-7e2d-9a3f-6c8d1e0b4a72';
 const SECOND_CLAIM_ID = '0192f3a4-5b1c-7e2d-9a3f-6c8d1e0b4a73';
 const CONTRACT_ID = '22222222-2222-7222-8222-222222222222';
 const RETRO_ID = '33333333-3333-7333-8333-333333333333';
+const CONTRACT_NUMBER = 'QS-2026-00042';
+const CONTRACT_LABEL = `${CONTRACT_NUMBER} · QUOTA_SHARE`;
 
 const CLAIM = {
   id: CLAIM_ID,
@@ -25,7 +27,7 @@ const CLAIM = {
  * A small stateful mock for the public Assumed Claims API. It is deliberately stateful so the
  * tests exercise the same reload-after-command behaviour as the real workbench.
  */
-async function installWorkspaceMock(page) {
+async function installWorkspaceMock(page, options = {}) {
   const state = {
     claims: [{ ...CLAIM }],
     archivedClaims: [],
@@ -47,6 +49,17 @@ async function installWorkspaceMock(page) {
       sequence: 1
     }],
     commutation: null,
+    contractDetail: {
+      id: CONTRACT_ID,
+      tenantId: TENANT,
+      contractNumber: CONTRACT_NUMBER,
+      contractType: 'QUOTA_SHARE',
+      status: 'BOUND',
+      effectiveDate: '2026-01-01',
+      expirationDate: '2026-12-31',
+      currency: 'USD',
+      version: 1
+    },
     contracts: [{
       id: CONTRACT_ID,
       type: 'CONTRACT',
@@ -64,6 +77,7 @@ async function installWorkspaceMock(page) {
       href: `/retrocession?record=${RETRO_ID}`
     }],
     contractSearches: [],
+    contractDetailRequests: [],
     retroSearches: [],
     seenHeaders: []
   };
@@ -103,6 +117,30 @@ async function installWorkspaceMock(page) {
       status: 200,
       contentType: 'application/json',
       body: JSON.stringify({ query, limit: Number(limit), items })
+    });
+  });
+
+  await page.route(/\/api\/v1\/contracts\/[0-9a-fA-F-]{36}$/, async (route) => {
+    const request = route.request();
+    state.contractDetailRequests.push({
+      url: request.url(),
+      headers: request.headers()
+    });
+    if (options.contractDetail === 'fail') {
+      return route.fulfill({
+        status: 503,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          code: 'EIA-CTR-5030',
+          category: 'UNAVAILABLE',
+          message: 'Contract service is unavailable'
+        })
+      });
+    }
+    return route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(state.contractDetail)
     });
   });
 
@@ -726,4 +764,53 @@ test('shows contract context, the why-this-matters panel, and related retrocessi
   expect(state.retroSearches[0].limit).toBe('5');
   expect(state.retroSearches[0].headers['x-eia-book']).toBe('ASSUMED');
   expect(state.retroSearches[0].headers['x-eia-tenant']).toBe(TENANT);
+});
+
+test('resolves the governing contract into a readable label on every cross-link', async ({ page }) => {
+  const state = await installWorkspaceMock(page);
+
+  await page.goto('/');
+  await expect(page.getByRole('heading', { name: 'RNS-2026-0007731' })).toBeVisible();
+
+  for (const testId of [
+    'contract-link-header',
+    'contract-link-overview',
+    'contract-link-context',
+    'contract-link-related'
+  ]) {
+    const link = page.getByTestId(testId);
+    await expect(link).toHaveText(CONTRACT_LABEL);
+    await expect(link).toHaveAttribute('href', `/contract?record=${CONTRACT_ID}`);
+  }
+
+  await expect.poll(() => state.contractDetailRequests.length).toBe(1);
+  const request = state.contractDetailRequests[0];
+  expect(new URL(request.url).pathname).toBe(`/api/v1/contracts/${CONTRACT_ID}`);
+  expect(request.headers['x-eia-book']).toBe('ASSUMED');
+  expect(request.headers['x-eia-tenant']).toBe(TENANT);
+});
+
+test('keeps the claim workbench rendering with a short contract id fallback', async ({ page }) => {
+  const state = await installWorkspaceMock(page, { contractDetail: 'fail' });
+
+  await page.goto('/');
+  await expect(page.getByRole('heading', { name: 'RNS-2026-0007731' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Claim details' })).toBeVisible();
+  await expect(page.getByRole('tab', { name: 'Overview' })).toHaveAttribute('aria-selected', 'true');
+
+  const shortContractId = CONTRACT_ID.slice(0, 8);
+  for (const testId of [
+    'contract-link-header',
+    'contract-link-overview',
+    'contract-link-context',
+    'contract-link-related'
+  ]) {
+    const link = page.getByTestId(testId);
+    await expect(link).toHaveText(shortContractId);
+    await expect(link).toHaveAttribute('href', `/contract?record=${CONTRACT_ID}`);
+  }
+
+  await expect.poll(() => state.contractDetailRequests.length).toBe(1);
+  expect(state.contractDetailRequests[0].headers['x-eia-book']).toBe('ASSUMED');
+  expect(state.contractDetailRequests[0].headers['x-eia-tenant']).toBe(TENANT);
 });

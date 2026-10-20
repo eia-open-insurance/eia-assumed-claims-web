@@ -46,9 +46,12 @@ Assumed Claims federated remote: screens, widgets, record tabs, and transaction 
   `/api/v1/contracts/search` with `X-EIA-Book: ASSUMED`; the selected contract shows its
   number and type and links to `/contract?record=<id>`, and the contract id is posted with
   the claim.
-- Overview cross-links show the governing assumed contract and cedent reference, a
-  "Why this matters" panel (coverage, cessions/recoveries, and SAP FS-RI as the system of
-  record for actual reinsurance), and Related records with retrocessions fetched from
+- Overview cross-links show the governing assumed contract resolved through
+  `GET /api/v1/contracts/<contractId>` on the ASSUMED book as
+  `<contractNumber> · <contractType>` (falling back to the short UUID while the lookup is in
+  flight or fails) and the cedent reference, a "Why this matters" panel (coverage,
+  cessions/recoveries, and SAP FS-RI as the system of record for actual reinsurance), and
+  Related records with retrocessions fetched from
   `/api/v1/retrocessions/search?q=<contractId>&limit=5` on the ASSUMED book.
 - Workbench tabs (`eia-tabs` / `eia-tab`): Overview, Loss Advice (advice history, accept,
   record advice, bordereau ingest), Reserve History (append-only history plus reserve change),
@@ -60,11 +63,11 @@ Assumed Claims federated remote: screens, widgets, record tabs, and transaction 
   through `style-loader`/`css-loader`. A small scoped tab-hover guard preserves the shared
   transparent tab treatment against the global `main button:hover` normalization.
 - `@swc/core` is pinned to exactly `1.10.7`.
-- Eleven Playwright tests mock the API statefully: the ASSUMED book wall and operational layout,
+- Thirteen Playwright tests mock the API statefully: the ASSUMED book wall and operational layout,
   the register modal, loss-advice record/accept, reserve history with the derived current
   reserve, every workbench tab including audit, claim close, URL record discovery (queue and
   search projection), queue filtering, predictive contract selection and payload, and the
-  Overview cross-links.
+  Overview cross-links including contract-label resolution and its short-UUID fallback.
 
 ## Local run
 

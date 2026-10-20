@@ -28,9 +28,10 @@ Assumed Claims federated remote: screens, widgets, record tabs, and transaction 
 - Async bootstrap (`src/index.jsx` imports `./bootstrap`) so React is resolved as a shared
   singleton.
 - Every API request sends `X-EIA-Tenant` and `X-EIA-Book: ASSUMED`; the development server
-  proxies `/api` to `http://localhost:8090`. The platform event inbox is the tenant-scoped
-  exception: `GET /api/v1/events/aggregate/{claimId}?limit=50` sends `X-EIA-Tenant` without the
-  ASSUMED book wall.
+  proxies `/api` to `http://localhost:8090`. There are two platform reads: the event inbox
+  (`GET /api/v1/events/aggregate/{claimId}?limit=50`) is tenant-scoped without the ASSUMED
+  book wall, and the public `GET /api/v1/directory` people/team directory carries neither
+  header. The directory is fetched once when the app starts and reused in memory.
 - Operational assumed-claim page built on the shared EIA design: `eia-page-head` with the
   `Claims · Assumed book` eyebrow and ASSUMED badge, a two-pane `eia-record-layout` register
   and workbench panel, claim header actions, and a six-card `eia-summary-grid` (assigned to,
@@ -46,14 +47,23 @@ Assumed Claims federated remote: screens, widgets, record tabs, and transaction 
   status, assignee, and team (including the humanized team label and `Unassigned`), with a
   live match count and a Clear action. Each queue row shows the current owner.
 - Claim assignment mirrors the Direct Claims ownership UX: the record header shows
-  `Assigned to <adjuster> · <team>` or `Unassigned`, the `Assign` action opens a modal
-  pre-filled with the current adjuster and team, and saving sends
-  `PATCH /api/v1/assumed-claims/claims/{claimId}/assignment` with `assignedAdjuster`,
-  `assignedTeam`, and the observed `expectedVersion` plus the optional `X-EIA-Actor` header.
-  The Overview adds an "Assigned to" summary card and a "Claim ownership" context panel.
-  A stale version is answered with 409: the modal keeps the typed values, shows the conflict,
-  and offers `Reload claim` so the next save uses the refreshed version; a successful assign
-  reloads the queue and claim detail (including the assignment audit entry).
+  `Assigned to <adjuster> · <team>` or `Unassigned`, and the `Assign` action opens a modal with:
+  - an **Assigned adjuster** select built from `GET /api/v1/directory` people, showing each
+    person's display name and role; the selected person's role and email are shown underneath;
+  - a **Team** select built from the directory `{code,label}` teams, narrowed to the selected
+    person's team codes when the directory has routing data and otherwise showing every team;
+  - the current `assignedAdjuster` preselected when it matches a directory person (otherwise
+    `A. Adjuster`), and the current team when it belongs to that person (otherwise their first
+    team).
+
+  Saving sends `PATCH /api/v1/assumed-claims/claims/{claimId}/assignment` with the selected
+  displayName, the team code, and the observed `expectedVersion` plus the optional `X-EIA-Actor`
+  header. If the directory is unavailable the modal keeps a free-text adjuster input and the
+  static assignment team list, and the directory-503 message explains the fallback. The Overview
+  adds an "Assigned to" summary card and a "Claim ownership" context panel. A stale version is
+  answered with 409: the modal keeps the typed values, shows the conflict, and offers
+  `Reload claim` so the next save uses the refreshed version; a successful assign reloads the
+  queue and claim detail (including the assignment audit entry).
 - The register form uses the shared `EntityPicker` against
   `/api/v1/contracts/search` with `X-EIA-Book: ASSUMED`; the selected contract shows its
   number and type and links to `/contract?record=<id>`, and the contract id is posted with
@@ -84,15 +94,17 @@ Assumed Claims federated remote: screens, widgets, record tabs, and transaction 
   through `style-loader`/`css-loader`. A small scoped tab-hover guard preserves the shared
   transparent tab treatment against the global `main button:hover` normalization.
 - `@swc/core` is pinned to exactly `1.10.7`.
-- Forty-two Playwright tests mock the API statefully: the ASSUMED book wall and operational layout,
+- Forty-six Playwright tests mock the API statefully: the ASSUMED book wall and operational layout,
   the register modal, loss-advice record/accept, reserve history with the derived current
   reserve, every workbench tab including audit, claim close, URL record discovery (queue and
   search projection), queue filtering (claim facts and assignment), predictive contract
   selection and payload, the Overview cross-links including contract-label resolution and its
-  short-UUID fallback, diary tasks and notes, claim assignment (header/queue/summary
-  ownership, prefill and versioned PATCH, owner filtering, and 409 reload-and-retry), and the
-  event-derived Activity timeline (aggregate path/tenant header, newest-first rendering,
-  card-local empty and 503 states, payload facts, and selection refetch).
+  short-UUID fallback, diary tasks and notes, claim assignment (directory fetch/cache, person
+  options with role and email hints, team filtering by person, displayName/team-code submission,
+  prefill/default states, owner filtering, 409 reload-and-retry, and the directory-503
+  free-text/static-team fallback), and the event-derived Activity timeline (aggregate
+  path/tenant header, newest-first rendering, card-local empty and 503 states, payload facts,
+  and selection refetch).
 
 ## Local run
 
@@ -105,7 +117,7 @@ npm test
 
 ## Verification
 
-- Playwright: `npx playwright test` (42 tests).
+- Playwright: `npx playwright test` (46 tests).
 - Production bundle: `npm run build`.
 - Contract tests
 - Security scan and SBOM

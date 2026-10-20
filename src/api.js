@@ -26,16 +26,17 @@ async function readError(response) {
  * wall; cross-vertical discovery endpoints pass their full `/api/...` path.
  */
 export async function request(path, options = {}) {
-  // `book` is a transport concern, not a fetch option. Domain reads default to
-  // the ASSUMED wall; pass `book: null` for platform reads that are scoped by
-  // tenant only, such as the event inbox.
-  const { book = BOOK, ...init } = options;
+  // `book` and `tenant` are transport concerns, not fetch options. Domain reads
+  // default to the ASSUMED wall; pass `book: null` for platform reads that are
+  // scoped by tenant only (for example the event inbox), and `tenant: null`
+  // for platform-wide master data (for example the people/team directory).
+  const { book = BOOK, tenant = TENANT, ...init } = options;
   const url = String(path).startsWith('/api/') ? path : `${API_BASE}${path}`;
   const response = await fetch(url, {
     ...init,
     cache: init.cache || 'no-store',
     headers: {
-      'X-EIA-Tenant': TENANT,
+      ...(tenant ? { 'X-EIA-Tenant': tenant } : {}),
       ...(book ? { 'X-EIA-Book': book } : {}),
       ...(init.body ? { 'Content-Type': 'application/json' } : {}),
       ...init.headers
@@ -100,6 +101,13 @@ export function createNote(claimId, body, key) {
 }
 
 export const api = {
+  directory: {
+    /**
+     * People and teams for assignment. The directory is platform master data,
+     * not book- or tenant-scoped, so neither wall is sent on this read.
+     */
+    get: () => request('/api/v1/directory', { book: null, tenant: null })
+  },
   claims: {
     get: (claimId) => request(`/claims/${encodeURIComponent(claimId)}`),
     /**

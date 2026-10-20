@@ -17,9 +17,13 @@
 - Record discovery via `?record=` / `?new=1` and `popstate`, with the assumed-claims search
   projection as the deep-link fallback.
 - Queue filter plus predictive assumed-contract lookup through the shared `EntityPicker`.
-- Claim assignment: owner line in the record header, `Assign` modal with adjuster, team, prefill,
-  and a versioned `PATCH .../assignment` (409 reload-and-retry), owner on every queue row and in
-  the queue filter, an "Assigned to" summary card, and a "Claim ownership" context panel.
+- Claim assignment: owner line in the record header, `Assign` modal with an adjuster select
+  from the shared `GET /api/v1/directory` people (display name plus role and a role/email hint),
+  a team select narrowed to the selected person's team codes, current/default prefill, and a
+  versioned `PATCH .../assignment` (409 reload-and-retry) that sends the selected displayName,
+  team code, and `expectedVersion`; a directory 503 falls back to free-text adjuster entry and
+  the static team list. Owner appears on every queue row and in the queue filter, with an
+  "Assigned to" summary card and a "Claim ownership" context panel.
 - Event-derived Activity tab after Audit: selection loads
   `GET /api/v1/events/aggregate/{claimId}?limit=50` with `X-EIA-Tenant` (no book wall), renders
   newest first with a UTC timestamp, readable event label, inbox status, event/aggregate version,

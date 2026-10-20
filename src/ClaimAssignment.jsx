@@ -16,6 +16,9 @@ export const ASSIGNMENT_TEAMS = [
 export const DEFAULT_ASSIGNEE = 'A. Adjuster';
 export const DEFAULT_TEAM = ASSIGNMENT_TEAMS[0].value;
 
+/** Static team options are the offline fallback when the directory is down. */
+const STATIC_TEAM_OPTIONS = ASSIGNMENT_TEAMS.map(({ value, label }) => ({ code: value, label }));
+
 const OVERLAY_STYLE = {
   position: 'fixed',
   inset: 0,
@@ -33,6 +36,17 @@ const DIALOG_STYLE = {
   boxShadow: '0 24px 70px rgba(11, 46, 79, 0.28)'
 };
 
+function firstText(...values) {
+  for (const value of values) {
+    if (typeof value === 'string' && value.trim()) return value.trim();
+  }
+  return '';
+}
+
+function personKey(value) {
+  return String(value || '').trim().toLowerCase();
+}
+
 /** Readable label for a stored team code, falling back to the stored value. */
 export function teamLabel(team) {
   if (!team) return '';
@@ -42,13 +56,19 @@ export function teamLabel(team) {
 
 /**
  * Reads the current ownership from a claim projection. `assignedAdjuster` and
- * `assignedTeam` are the canonical domain fields.
+ * `assignedTeam` are the canonical domain fields; the aliases keep the
+ * workbench readable if a hand-off payload uses another shape.
  */
 export function readAssignment(claim) {
   if (!claim) return { assignedAdjuster: '', assignedTeam: '' };
   return {
-    assignedAdjuster: String(claim.assignedAdjuster || '').trim(),
-    assignedTeam: String(claim.assignedTeam || '').trim()
+    assignedAdjuster: firstText(
+      claim.assignedAdjuster,
+      claim.assignedTo,
+      claim.assignee,
+      claim.assigneeName
+    ),
+    assignedTeam: firstText(claim.assignedTeam, claim.team, claim.assignmentTeam)
   };
 }
 
@@ -90,11 +110,57 @@ export function ownershipNote(claim, assignedAtLabel) {
   return `${owner} owns this claim in the assumed claims queue.${since} ${base}`;
 }
 
-function initialForm(claim) {
+function peopleIn(directory) {
+  return Array.isArray(directory?.people) ? directory.people : [];
+}
+
+function allTeamOptions(directory) {
+  const teams = Array.isArray(directory?.teams) ? directory.teams : [];
+  return teams.length > 0 ? teams : STATIC_TEAM_OPTIONS;
+}
+
+function findPerson(people, displayName) {
+  const target = personKey(displayName);
+  if (!target) return null;
+  return people.find((person) => personKey(person.displayName) === target
+    || personKey(person.email) === target) || null;
+}
+
+function defaultPerson(people) {
+  return findPerson(people, DEFAULT_ASSIGNEE) || people[0] || null;
+}
+
+/**
+ * A person's own teams when the directory knows them, otherwise every team so
+ * the dialog never becomes unusable just because the directory has no routing
+ * data for that person.
+ */
+function teamOptionsFor(person, teams) {
+  if (!person) return teams;
+  const byCode = new Map(teams.map((team) => [team.code, team]));
+  const options = [];
+  for (const code of person.teams || []) {
+    const team = byCode.get(code);
+    if (team && !options.includes(team)) options.push(team);
+  }
+  return options.length > 0 ? options : teams;
+}
+
+function chooseTeam(currentTeam, options, fallbackTeam) {
+  if (currentTeam && options.some((team) => team.code === currentTeam)) return currentTeam;
+  if (fallbackTeam && options.some((team) => team.code === fallbackTeam)) return fallbackTeam;
+  return options[0]?.code || currentTeam || DEFAULT_TEAM;
+}
+
+function initialForm(claim, directory) {
   const current = readAssignment(claim);
+  const people = peopleIn(directory);
+  const teams = allTeamOptions(directory);
+  const person = findPerson(people, current.assignedAdjuster) || defaultPerson(people);
+  const options = teamOptionsFor(person, teams);
   return {
-    assignedAdjuster: current.assignedAdjuster || DEFAULT_ASSIGNEE,
-    assignedTeam: current.assignedTeam || DEFAULT_TEAM
+    assignedAdjuster: person ? person.displayName : current.assignedAdjuster || DEFAULT_ASSIGNEE,
+    assignedTeam: chooseTeam(current.assignedTeam, options)
   };
 }
 
@@ -102,13 +168,24 @@ function initialVersion(claim) {
   return Number.isInteger(claim?.version) ? claim.version : 0;
 }
 
+function personLabel(person) {
+  return person.role ? `${person.displayName} — ${person.role}` : person.displayName;
+}
+
 /**
  * Assignment is an operational ownership change only. The dialog sends the
  * expected claim version so the expert rejects a stale edit with 409 instead of
  * overwriting a concurrent reassignment.
  */
-export default function AssignmentDialog({ claim, onClose, onAssigned, onReload }) {
-  const [form, setForm] = useState(() => initialForm(claim));
+export default function AssignmentDialog({
+  claim,
+  directory = null,
+  directoryStatus = 'loading',
+  onClose,
+  onAssigned,
+  onReload
+}) {
+  const [form, setForm] = useState(() => initialForm(claim, directory));
   const [current, setCurrent] = useState(() => readAssignment(claim));
   const [expectedVersion, setExpectedVersion] = useState(() => initialVersion(claim));
   const [busy, setBusy] = useState(false);
@@ -116,6 +193,31 @@ export default function AssignmentDialog({ claim, onClose, onAssigned, onReload 
   const [error, setError] = useState('');
   const [stale, setStale] = useState(false);
   const [status, setStatus] = useState('');
+
+  const people = peopleIn(directory);
+  const teams = allTeamOptions(directory);
+  const usesDirectory = people.length > 0;
+  const selectedPerson = usesDirectory ? findPerson(people, form.assignedAdjuster) : null;
+  const teamOptions = teamOptionsFor(selectedPerson, teams);
+
+  /**
+   * The app starts the directory request with the claim queue, so the dialog can
+   * open before it settles. Reconcile the form once the data arrives, keeping a
+   * matching current owner and any team that is still valid for that person.
+   */
+  useEffect(() => {
+    if (people.length === 0) return;
+    setForm((previous) => {
+      const person = findPerson(people, previous.assignedAdjuster) || defaultPerson(people);
+      if (!person) return previous;
+      const options = teamOptionsFor(person, teams);
+      const assignedTeam = chooseTeam(previous.assignedTeam, options);
+      if (person.displayName === previous.assignedAdjuster && assignedTeam === previous.assignedTeam) {
+        return previous;
+      }
+      return { assignedAdjuster: person.displayName, assignedTeam };
+    });
+  }, [directory]);
 
   useEffect(() => {
     const onKeyDown = (event) => {
@@ -129,11 +231,41 @@ export default function AssignmentDialog({ claim, onClose, onAssigned, onReload 
     setForm((previous) => ({ ...previous, [field]: event.target.value }));
   };
 
+  function updateAdjuster(event) {
+    const assignedAdjuster = event.target.value;
+    const person = findPerson(people, assignedAdjuster);
+    setForm((previous) => {
+      const options = teamOptionsFor(person, teams);
+      return {
+        assignedAdjuster,
+        assignedTeam: chooseTeam(previous.assignedTeam, options)
+      };
+    });
+  }
+
+  /** One-line role/email hint under the selected person. */
+  const personHint = selectedPerson
+    ? [selectedPerson.role, selectedPerson.email].filter(Boolean).join(' · ')
+    : '';
+
+  const fallbackNote =
+    directoryStatus === 'error'
+      ? 'Directory unavailable — enter the adjuster manually. Standard assignment teams are shown.'
+      : directoryStatus === 'ready' && people.length === 0
+        ? 'The directory returned no people — enter the adjuster manually. Standard assignment teams are shown.'
+        : directoryStatus === 'loading'
+          ? 'Loading the directory… you can enter the adjuster manually.'
+          : '';
+
   async function submit(event) {
     event.preventDefault();
     const assignedAdjuster = form.assignedAdjuster.trim();
     if (!assignedAdjuster) {
-      setError('Enter the adjuster name or email before assigning the claim.');
+      setError(
+        usesDirectory
+          ? 'Select an adjuster before assigning the claim.'
+          : 'Enter the adjuster name or email before assigning the claim.'
+      );
       return;
     }
 
@@ -219,30 +351,78 @@ export default function AssignmentDialog({ claim, onClose, onAssigned, onReload 
         </div>
 
         <form className="eia-form-grid" onSubmit={submit} style={{ marginTop: 16 }} aria-label="Assign claim">
-          <Field label="Assigned adjuster (name or email)" className="span-2">
-            <input
-              id="assignedAdjuster"
-              value={form.assignedAdjuster}
-              onChange={update('assignedAdjuster')}
-              required
-              maxLength={120}
-              placeholder="e.g. A. Adjuster or adjuster@example.com"
-              autoComplete="off"
-              autoFocus
-              disabled={busy || reloading}
-              data-testid="assignment-assigned-adjuster"
-            />
+          <Field label="Assigned adjuster" className="span-2">
+            {usesDirectory ? (
+              <>
+                <select
+                  id="assignedAdjuster"
+                  value={form.assignedAdjuster}
+                  onChange={updateAdjuster}
+                  required
+                  autoFocus
+                  disabled={busy || reloading}
+                  aria-describedby={personHint ? 'assignment-adjuster-hint' : undefined}
+                  data-testid="assignment-assigned-adjuster"
+                >
+                  {people.map((person) => (
+                    <option key={person.id} value={person.displayName}>
+                      {personLabel(person)}
+                    </option>
+                  ))}
+                </select>
+                {personHint && (
+                  <span
+                    id="assignment-adjuster-hint"
+                    className="eia-picker-hint"
+                    data-testid="assignment-adjuster-hint"
+                  >
+                    {selectedPerson.role && (
+                      <span data-testid="assignment-adjuster-role">{selectedPerson.role}</span>
+                    )}
+                    {selectedPerson.role && selectedPerson.email ? ' · ' : null}
+                    {selectedPerson.email && (
+                      <span data-testid="assignment-adjuster-email">{selectedPerson.email}</span>
+                    )}
+                  </span>
+                )}
+              </>
+            ) : (
+              <>
+                <input
+                  id="assignedAdjuster"
+                  value={form.assignedAdjuster}
+                  onChange={update('assignedAdjuster')}
+                  required
+                  maxLength={160}
+                  placeholder="e.g. A. Adjuster or adjuster@example.com"
+                  autoComplete="off"
+                  autoFocus
+                  disabled={busy || reloading}
+                  data-testid="assignment-assigned-adjuster"
+                />
+                {fallbackNote && (
+                  <span
+                    className="eia-picker-hint"
+                    data-testid="assignment-directory-fallback"
+                    role="note"
+                  >
+                    {fallbackNote}
+                  </span>
+                )}
+              </>
+            )}
           </Field>
           <Field label="Team">
             <select
               id="assignedTeam"
               value={form.assignedTeam}
               onChange={update('assignedTeam')}
+              required
               disabled={busy || reloading}
               data-testid="assignment-assigned-team"
             >
-              {ASSIGNMENT_TEAMS.map((team) => (
-                <option key={team.value} value={team.value}>
+              {teamOptions.map((team) => (
+                <option key={team.code} value={team.code}>
                   {team.label}
                 </option>
               ))}

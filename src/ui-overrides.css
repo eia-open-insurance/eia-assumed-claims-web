@@ -343,6 +343,70 @@ main tr.eia-diary-overdue:hover td {
   white-space: pre-wrap;
 }
 
+/*
+ * Claim activity: the platform event-inbox timeline. The event label is
+ * primary, the inbox status and event version are secondary, and payload
+ * facts read as compact chips under the row.
+ */
+.eia-activity-head {
+  align-items: baseline;
+}
+
+.eia-activity-time {
+  flex: 0 0 auto;
+  font-size: 11px;
+  color: var(--eia-muted, #5b6b7c);
+  white-space: nowrap;
+}
+
+.eia-activity-label {
+  color: var(--eia-navy, #0b2e4f);
+  font-size: 12.5px;
+}
+
+.eia-activity-version {
+  color: var(--eia-muted, #5b6b7c);
+}
+
+.eia-activity-facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  list-style: none;
+  margin: 7px 0 0;
+  padding: 0;
+}
+
+.eia-activity-fact {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+  max-width: 100%;
+  padding: 2px 8px;
+  border: 1px solid #e3eaf1;
+  border-radius: 999px;
+  background: #f4f7fa;
+  color: var(--eia-ink, #1b2a3a);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.eia-activity-fact-label {
+  flex: 0 0 auto;
+  color: var(--eia-muted, #5b6b7c);
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: .05em;
+  text-transform: uppercase;
+}
+
+.eia-activity-raw {
+  margin: 6px 0 0 !important;
+  color: #7a8d9f;
+  font-size: 10px;
+  overflow-wrap: anywhere;
+}
+
 .eia-form-grid textarea {
   resize: vertical;
 }

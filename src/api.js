@@ -26,15 +26,19 @@ async function readError(response) {
  * wall; cross-vertical discovery endpoints pass their full `/api/...` path.
  */
 export async function request(path, options = {}) {
+  // `book` is a transport concern, not a fetch option. Domain reads default to
+  // the ASSUMED wall; pass `book: null` for platform reads that are scoped by
+  // tenant only, such as the event inbox.
+  const { book = BOOK, ...init } = options;
   const url = String(path).startsWith('/api/') ? path : `${API_BASE}${path}`;
   const response = await fetch(url, {
-    ...options,
-    cache: options.cache || 'no-store',
+    ...init,
+    cache: init.cache || 'no-store',
     headers: {
       'X-EIA-Tenant': TENANT,
-      'X-EIA-Book': BOOK,
-      ...(options.body ? { 'Content-Type': 'application/json' } : {}),
-      ...options.headers
+      ...(book ? { 'X-EIA-Book': book } : {}),
+      ...(init.body ? { 'Content-Type': 'application/json' } : {}),
+      ...init.headers
     }
   });
   if (!response.ok) {
@@ -136,6 +140,17 @@ export const api = {
   notes: {
     list: (claimId) => request(`/claims/${encodeURIComponent(claimId)}/notes`),
     create: (claimId, body, key) => createNote(claimId, body, key)
+  },
+  events: {
+    /**
+     * Activity events for one claim aggregate, newest first as published by
+     * the platform event inbox. The inbox is tenant-scoped, not book-scoped,
+     * so the ASSUMED wall is deliberately not sent on this platform read.
+     */
+    aggregate: (claimId, limit = 50) =>
+      request(`/api/v1/events/aggregate/${encodeURIComponent(claimId)}?limit=${limit}`, {
+        book: null
+      })
   }
 };
 

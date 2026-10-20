@@ -28,7 +28,9 @@ Assumed Claims federated remote: screens, widgets, record tabs, and transaction 
 - Async bootstrap (`src/index.jsx` imports `./bootstrap`) so React is resolved as a shared
   singleton.
 - Every API request sends `X-EIA-Tenant` and `X-EIA-Book: ASSUMED`; the development server
-  proxies `/api` to `http://localhost:8090`.
+  proxies `/api` to `http://localhost:8090`. The platform event inbox is the tenant-scoped
+  exception: `GET /api/v1/events/aggregate/{claimId}?limit=50` sends `X-EIA-Tenant` without the
+  ASSUMED book wall.
 - Operational assumed-claim page built on the shared EIA design: `eia-page-head` with the
   `Claims · Assumed book` eyebrow and ASSUMED badge, a two-pane `eia-record-layout` register
   and workbench panel, claim header actions, and a six-card `eia-summary-grid` (assigned to,
@@ -65,21 +67,32 @@ Assumed Claims federated remote: screens, widgets, record tabs, and transaction 
   `/api/v1/retrocessions/search?q=<contractId>&limit=5` on the ASSUMED book.
 - Workbench tabs (`eia-tabs` / `eia-tab`): Overview, Loss Advice (advice history, accept,
   record advice, bordereau ingest), Reserve History (append-only history plus reserve change),
-  Cash Calls, Recoveries, Commutation, Disputes (raise and resolve), and Audit. Claim status
-  transitions, close, financial summary, and the audit trail remain available.
+  Cash Calls, Recoveries, Commutation, Disputes (raise and resolve), Audit, Activity, and
+  Diary & Notes. Claim status transitions, close, financial summary, and the audit trail remain
+  available.
+- Activity is an event-derived timeline loaded as soon as a claim is selected from
+  `GET /api/v1/events/aggregate/{claimId}?limit=50` (tenant header only). The card renders newest
+  first with a UTC timestamp, readable event label (`assumed.claim.registered` → `Claim
+  registered`), inbox status, event/aggregate version, and payload facts for status, reserve,
+  advice, cash call, recovery, commutation, task/note, and assignment. Loading, empty, and error
+  states stay card-local, Refresh re-reads the aggregate, and selecting another claim refetches
+  it. A context note states that activity is event-derived and append-only while the assumed
+  claim record remains the source of truth.
 - Money is rendered from the API's decimal strings; the UI never treats an amount as a float for
   submission (inputs are sent as decimal strings).
 - The canonical `ui.css` and `EntityPicker.jsx` are copied from the shell/ui-kit and loaded
   through `style-loader`/`css-loader`. A small scoped tab-hover guard preserves the shared
   transparent tab treatment against the global `main button:hover` normalization.
 - `@swc/core` is pinned to exactly `1.10.7`.
-- Thirty-one Playwright tests mock the API statefully: the ASSUMED book wall and operational layout,
+- Forty-two Playwright tests mock the API statefully: the ASSUMED book wall and operational layout,
   the register modal, loss-advice record/accept, reserve history with the derived current
   reserve, every workbench tab including audit, claim close, URL record discovery (queue and
   search projection), queue filtering (claim facts and assignment), predictive contract
   selection and payload, the Overview cross-links including contract-label resolution and its
-  short-UUID fallback, diary tasks and notes, and claim assignment (header/queue/summary
-  ownership, prefill and versioned PATCH, owner filtering, and 409 reload-and-retry).
+  short-UUID fallback, diary tasks and notes, claim assignment (header/queue/summary
+  ownership, prefill and versioned PATCH, owner filtering, and 409 reload-and-retry), and the
+  event-derived Activity timeline (aggregate path/tenant header, newest-first rendering,
+  card-local empty and 503 states, payload facts, and selection refetch).
 
 ## Local run
 
@@ -92,7 +105,7 @@ npm test
 
 ## Verification
 
-- Playwright: `npx playwright test` (31 tests).
+- Playwright: `npx playwright test` (42 tests).
 - Production bundle: `npm run build`.
 - Contract tests
 - Security scan and SBOM

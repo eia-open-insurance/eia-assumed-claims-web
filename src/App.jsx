@@ -1,4 +1,9 @@
 import React, { useEffect, useRef, useState } from 'react';
+import ActivityTab, {
+  ACTIVITY_LIMIT,
+  activityItems,
+  sortActivityItems
+} from './ActivityTab.jsx';
 import { ApiError, BOOK, api, request } from './api.js';
 import AssignmentDialog, {
   assignmentFilterValues,
@@ -51,6 +56,7 @@ const TABS = [
   { id: 'commutation', label: 'Commutation' },
   { id: 'disputes', label: 'Disputes' },
   { id: 'audit', label: 'Audit' },
+  { id: 'activity', label: 'Activity' },
   { id: 'diary', label: 'Diary & Notes' }
 ];
 
@@ -227,13 +233,28 @@ export default function App() {
   const [submitting, setSubmitting] = useState(false);
   const [summary, setSummary] = useState({ openTasks: null });
   const [summaryNonce, setSummaryNonce] = useState(0);
+  const [activity, setActivity] = useState({
+    claimId: null,
+    items: [],
+    loading: false,
+    error: ''
+  });
 
   const claimsRef = useRef([]);
   const selectedIdRef = useRef(null);
   const openRecordRef = useRef(null);
+  const activityRequestRef = useRef(0);
 
   const selectedClaim = claims.find((claim) => claim.id === selectedId) || null;
   const selectedAssignment = assignmentText(selectedClaim);
+  /**
+   * The event timeline is loaded as soon as a claim is selected, so its
+   * loading/error state must follow the selected claim rather than the tab.
+   * A state row for another claim is never rendered under this header.
+   */
+  const selectedActivity = selectedClaim && activity.claimId === selectedClaim.id
+    ? activity
+    : { items: [], loading: Boolean(selectedClaim), error: '' };
   const currency = resources.financials?.currency || selectedClaim?.reserveCurrency || 'USD';
   const nextStatuses = selectedClaim ? NEXT_STATUSES[selectedClaim.status] || [] : [];
   const queueNeedle = queueFilter.trim().toLowerCase();
@@ -305,6 +326,41 @@ export default function App() {
       });
     } finally {
       setWorkspaceLoading(false);
+    }
+  }
+
+  /**
+   * Activity is derived from the platform event inbox, not from the claim
+   * aggregate. It loads on selection but stays card-local: an unavailable
+   * event service never blocks the claim record or writes a page-level error.
+   */
+  async function loadActivity(claimId) {
+    const requestId = activityRequestRef.current + 1;
+    activityRequestRef.current = requestId;
+
+    if (!claimId) {
+      setActivity({ claimId: null, items: [], loading: false, error: '' });
+      return;
+    }
+
+    setActivity({ claimId, items: [], loading: true, error: '' });
+    try {
+      const body = await api.events.aggregate(claimId, ACTIVITY_LIMIT);
+      if (activityRequestRef.current !== requestId) return;
+      setActivity({
+        claimId,
+        items: sortActivityItems(activityItems(body)),
+        loading: false,
+        error: ''
+      });
+    } catch (cause) {
+      if (activityRequestRef.current !== requestId) return;
+      setActivity({
+        claimId,
+        items: [],
+        loading: false,
+        error: cause?.message || 'The platform event inbox could not be reached.'
+      });
     }
   }
 
@@ -469,6 +525,23 @@ export default function App() {
       alive = false;
     };
   }, [selectedId, summaryNonce]);
+
+  /**
+   * Selecting a claim immediately reads its event-aggregate timeline. The
+   * request lifecycle is keyed by selection, so a slow response for the
+   * previous claim can never render under the next claim's header.
+   */
+  useEffect(() => {
+    if (!selectedId) {
+      activityRequestRef.current += 1;
+      setActivity({ claimId: null, items: [], loading: false, error: '' });
+      return undefined;
+    }
+    loadActivity(selectedId);
+    return () => {
+      activityRequestRef.current += 1;
+    };
+  }, [selectedId]);
 
   useEffect(() => {
     let alive = true;
@@ -1451,6 +1524,14 @@ export default function App() {
       case 'commutation': return renderCommutation();
       case 'disputes': return renderDisputes();
       case 'audit': return renderAudit();
+      case 'activity': return (
+        <ActivityTab
+          items={selectedActivity.items}
+          loading={selectedActivity.loading}
+          error={selectedActivity.error}
+          onRefresh={() => loadActivity(selectedClaim.id)}
+        />
+      );
       case 'diary': return <DiaryNotesTab claim={selectedClaim} onChanged={refreshDiarySummary} />;
       default: return renderOverview();
     }

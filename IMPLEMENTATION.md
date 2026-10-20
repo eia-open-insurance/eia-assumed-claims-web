@@ -20,6 +20,13 @@
 - Claim assignment: owner line in the record header, `Assign` modal with adjuster, team, prefill,
   and a versioned `PATCH .../assignment` (409 reload-and-retry), owner on every queue row and in
   the queue filter, an "Assigned to" summary card, and a "Claim ownership" context panel.
+- Event-derived Activity tab after Audit: selection loads
+  `GET /api/v1/events/aggregate/{claimId}?limit=50` with `X-EIA-Tenant` (no book wall), renders
+  newest first with a UTC timestamp, readable event label, inbox status, event/aggregate version,
+  and payload facts for status, reserve, advice, cash call, recovery, commutation, task/note, and
+  assignment. Loading, empty, and 503 error states stay card-local, Refresh re-reads the
+  aggregate, selecting another claim refetches it, and a context note explains that activity is
+  event-derived and append-only while the claim record remains the source of truth.
 - Overview cross-links resolve the governing contract through
   `GET /api/v1/contracts/{contractId}` (ASSUMED book) and render
   `<contractNumber> · <contractType>` in the record header, Overview, "Why this matters"
@@ -28,5 +35,7 @@
   remain.
 - Playwright flows for the ASSUMED book wall and layout, register, loss-advice record/accept,
   reserve history, all tabs, close, URL entry, queue filtering, contract selection, contract
-  label resolution and fallback, cross-links, diary tasks and notes, and claim assignment
-  ownership, versioned PATCH, queue filters, and 409 reload-and-retry.
+  label resolution and fallback, cross-links, diary tasks and notes, claim assignment
+  ownership, versioned PATCH, queue filters, 409 reload-and-retry, and the event-derived
+  Activity timeline (aggregate path/header, order, empty, contained 503, payload facts, and
+  selection refetch).

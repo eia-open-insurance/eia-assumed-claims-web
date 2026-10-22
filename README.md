@@ -27,11 +27,12 @@ Assumed Claims federated remote: screens, widgets, record tabs, and transaction 
   (`./App`), served on port `3005`.
 - Async bootstrap (`src/index.jsx` imports `./bootstrap`) so React is resolved as a shared
   singleton.
-- Every API request sends `X-EIA-Tenant` and `X-EIA-Book: ASSUMED`; the development server
-  proxies `/api` to `http://localhost:8090`. There are two platform reads: the event inbox
-  (`GET /api/v1/events/aggregate/{claimId}?limit=50`) is tenant-scoped without the ASSUMED
-  book wall, and the public `GET /api/v1/directory` people/team directory carries neither
-  header. The directory is fetched once when the app starts and reused in memory.
+- Every domain API request sends `X-EIA-Tenant` and `X-EIA-Book: ASSUMED`; the development
+  server proxies `/api` to `http://localhost:8090`. Tenant-scoped platform reads omit the
+  ASSUMED book wall: the event inbox
+  (`GET /api/v1/events/aggregate/{claimId}?limit=50`), the public `GET /api/v1/directory`
+  people/team directory, and the Document search/detail reads used by the release document
+  picker. The directory is fetched once when the app starts and reused in memory.
 - Operational assumed-claim page built on the shared EIA design: `eia-page-head` with the
   `Claims · Assumed book` eyebrow and ASSUMED badge, a two-pane `eia-record-layout` register
   and workbench panel, claim header actions, and a six-card `eia-summary-grid` (assigned to,
@@ -108,13 +109,23 @@ Assumed Claims federated remote: screens, widgets, record tabs, and transaction 
   empty state reads **No notifications linked to this claim.** **View all notifications** opens
   the Notifications queue scoped to this claim:
   `/notifications?sourceType=ASSUMED_CLAIM&sourceId=<claimId>`.
+- The Commutation tab uses a predictive `DocumentPicker` for the required release document
+  instead of a raw UUID input. It searches
+  `GET /api/v1/documents/search?q=<term>&limit=8` with `X-EIA-Tenant` (Document is
+  tenant-scoped platform data, so no book header) by document number or title, stores the selected
+  document id and number, and shows the selection linked to `/document?record=<id>`. Executing
+  the commutation is blocked with an inline validation message until a document is selected;
+  the `POST .../commute` payload still carries only `releaseDocumentId` as its required UUID.
+  Existing commutations hydrate the document number and title through
+  `GET /api/v1/documents/{id}`, keep the link available with the short id when the lookup fails,
+  and the tab context explains that the release is a Document service record, not free text.
 - Money is rendered from the API's decimal strings; the UI never treats an amount as a float for
   submission (inputs are sent as decimal strings).
 - The canonical `ui.css` and `EntityPicker.jsx` are copied from the shell/ui-kit and loaded
   through `style-loader`/`css-loader`. A small scoped tab-hover guard preserves the shared
   transparent tab treatment against the global `main button:hover` normalization.
 - `@swc/core` is pinned to exactly `1.10.7`.
-- Sixty Playwright tests mock the API statefully: the ASSUMED book wall and operational layout,
+- Sixty-four Playwright tests mock the API statefully: the ASSUMED book wall and operational layout,
   the register modal, loss-advice record/accept, reserve history with the derived current
   reserve, every workbench tab including audit, claim close, URL record discovery (queue and
   search projection), queue filtering (claim facts and assignment), predictive contract
@@ -133,7 +144,9 @@ Assumed Claims federated remote: screens, widgets, record tabs, and transaction 
   exclusion, `/notifications?record=` links, the `{items}` envelope and page total, the empty
   state, a contained 503 that leaves the claim rendered, the loading state before the
   notifications response arrives, the filtered-queue hand-off, and refetch when another claim is
-  selected).
+  selected), and the Commutation release document picker (the document search request and tenant
+  header, selection label and `/document?record=` link, the posted `releaseDocumentId`, hydrated
+  labels and links for existing releases, the short-id fallback, and required validation).
 
 ## Local run
 
@@ -146,7 +159,7 @@ npm test
 
 ## Verification
 
-- Playwright: `npx playwright test` (60 tests).
+- Playwright: `npx playwright test` (64 tests).
 - Production bundle: `npm run build`.
 - Contract tests
 - Security scan and SBOM

@@ -16,6 +16,8 @@ import ClaimProgress from './ClaimProgress.jsx';
 import DiaryNotesTab from './DiaryNotesTab.jsx';
 import { loadDirectory } from './directory.js';
 import DocumentsCard from './DocumentsCard.jsx';
+import DocumentPicker from './DocumentPicker.jsx';
+import { documentHref, documentLabel } from './documents.js';
 import EntityPicker from './EntityPicker.jsx';
 import NotificationsCard from './NotificationsCard.jsx';
 import PaymentsCard from './PaymentsCard.jsx';
@@ -289,10 +291,23 @@ export default function App() {
   const [recoveryForm, setRecoveryForm] = useState({ recoveryType: 'SALVAGE', amount: '25000.00', receivedDate: TODAY, status: 'RECEIVED' });
   const [commutationForm, setCommutationForm] = useState({
     offerAmount: '800000.00', acceptedAmount: '750000.00', effectiveDate: TODAY,
-    approvedBy: '', approverRole: 'UNDERWRITER', releaseDocumentId: ''
+    approvedBy: '', approverRole: 'UNDERWRITER', releaseDocumentId: '', releaseDocumentLabel: ''
   });
+  const [commutationError, setCommutationError] = useState('');
+  const [releaseDocumentLookup, setReleaseDocumentLookup] = useState({ documentId: null, document: null });
   const [disputeForm, setDisputeForm] = useState({ disputeType: 'QUANTUM', reason: '', contestedAmount: '100000.00' });
   const [statusTarget, setStatusTarget] = useState('');
+
+  const commutationReleaseDocumentId = resources.commutation?.releaseDocumentId || null;
+  const resolvedReleaseDocument = releaseDocumentLookup.documentId === commutationReleaseDocumentId
+    ? releaseDocumentLookup.document
+    : null;
+  const releaseDocumentLabel = commutationReleaseDocumentId
+    ? documentLabel(resolvedReleaseDocument) || shortId(commutationReleaseDocumentId)
+    : '—';
+  const releaseDocumentHref = commutationReleaseDocumentId
+    ? documentHref(commutationReleaseDocumentId)
+    : null;
 
   async function loadClaims() {
     const body = await request('/claims');
@@ -485,6 +500,12 @@ export default function App() {
     setError('');
     setNotice('');
     setStatusTarget('');
+    setCommutationError('');
+    setCommutationForm((current) => ({
+      ...current,
+      releaseDocumentId: '',
+      releaseDocumentLabel: ''
+    }));
     setResources(EMPTY_RESOURCES);
     loadWorkspace(claim.id).catch((cause) => setError(cause.message));
     return true;
@@ -674,6 +695,41 @@ export default function App() {
       });
     return () => { alive = false; };
   }, [selectedContractId]);
+
+  /**
+   * Resolves the release document behind an existing commutation, so the card
+   * shows the document number instead of a raw UUID. The document is a record
+   * owned by the Document service; the commutation stores only its id. The
+   * lookup is an enhancement: while it runs, or if it fails, the link falls
+   * back to the short id without blocking the claim.
+   */
+  useEffect(() => {
+    if (!commutationReleaseDocumentId) {
+      setReleaseDocumentLookup({ documentId: null, document: null });
+      return undefined;
+    }
+    let alive = true;
+    setReleaseDocumentLookup({ documentId: commutationReleaseDocumentId, document: null });
+    api.documents
+      .get(commutationReleaseDocumentId)
+      .then((document) => {
+        if (alive) {
+          setReleaseDocumentLookup({
+            documentId: commutationReleaseDocumentId,
+            document: document || null
+          });
+        }
+      })
+      .catch(() => {
+        if (alive) {
+          setReleaseDocumentLookup({
+            documentId: commutationReleaseDocumentId,
+            document: null
+          });
+        }
+      });
+    return () => { alive = false; };
+  }, [commutationReleaseDocumentId]);
 
   function update(setter, field) {
     return (event) => setter((current) => ({ ...current, [field]: event.target.value }));
@@ -881,6 +937,11 @@ export default function App() {
   async function commute(event) {
     event.preventDefault();
     if (!selectedClaim) return;
+    if (!commutationForm.releaseDocumentId) {
+      setCommutationError('Select the signed release document before executing the commutation.');
+      return;
+    }
+    setCommutationError('');
     await mutate(`/claims/${selectedClaim.id}/commute`, {
       offerAmount: commutationForm.offerAmount,
       acceptedAmount: commutationForm.acceptedAmount,
@@ -888,7 +949,7 @@ export default function App() {
       effectiveDate: commutationForm.effectiveDate,
       approvedBy: commutationForm.approvedBy || null,
       approverRole: commutationForm.approverRole,
-      releaseDocumentId: commutationForm.releaseDocumentId || null
+      releaseDocumentId: commutationForm.releaseDocumentId
     });
   }
 
@@ -1401,6 +1462,20 @@ export default function App() {
           <h2>Commutation</h2>
           <span className="eia-muted">{selectedClaim.status}</span>
         </div>
+        <div
+          className="eia-context-panel"
+          aria-label="Release document context"
+          data-testid="release-document-context"
+          style={{ marginTop: 0, marginBottom: 14 }}
+        >
+          <h4>Release document</h4>
+          <p>
+            The signed release is a document record in the Document service, not free text. Search
+            by document number or title to select it; the commutation stores only that document&apos;s
+            id, and the selected document opens at /document?record=… as the evidence behind the
+            settlement. A release document is required to execute the commutation.
+          </p>
+        </div>
         {resources.commutation ? (
           <div className="eia-card">
             <dl className="eia-kv">
@@ -1415,7 +1490,27 @@ export default function App() {
               <dt>Effective date</dt>
               <dd>{resources.commutation.effectiveDate || '—'}</dd>
               <dt>Release document</dt>
-              <dd className="eia-mono">{resources.commutation.releaseDocumentId || '—'}</dd>
+              <dd data-testid="commutation-release-document">
+                {releaseDocumentHref ? (
+                  <>
+                    <a
+                      href={releaseDocumentHref}
+                      className="eia-mono"
+                      title={commutationReleaseDocumentId}
+                      data-testid="commutation-release-document-link"
+                      onClick={(event) => followInternalLink(event, releaseDocumentHref)}
+                    >
+                      {releaseDocumentLabel}
+                    </a>
+                    {resolvedReleaseDocument?.title
+                      && resolvedReleaseDocument.title !== releaseDocumentLabel && (
+                        <span className="eia-muted" data-testid="commutation-release-document-title">
+                          {' · '}{resolvedReleaseDocument.title}
+                        </span>
+                      )}
+                  </>
+                ) : '—'}
+              </dd>
               <dt>Approved by</dt>
               <dd className="eia-mono">{resources.commutation.approvedBy || '—'}</dd>
               <dt>Approver role</dt>
@@ -1449,8 +1544,32 @@ export default function App() {
               <Field label="Approved by">
                 <input value={commutationForm.approvedBy} onChange={update(setCommutationForm, 'approvedBy')} placeholder="Approver UUID" required />
               </Field>
-              <Field label="Release document ID">
-                <input value={commutationForm.releaseDocumentId} onChange={update(setCommutationForm, 'releaseDocumentId')} placeholder="Signed release document UUID" required />
+              <Field label="Release document">
+                <DocumentPicker
+                  testId="release-document"
+                  value={commutationForm.releaseDocumentId}
+                  valueLabel={commutationForm.releaseDocumentLabel}
+                  onChange={(id, item) => {
+                    setCommutationError('');
+                    setCommutationForm((current) => ({
+                      ...current,
+                      releaseDocumentId: id,
+                      releaseDocumentLabel: item?.label || ''
+                    }));
+                  }}
+                  placeholder="Search documents by number or title…"
+                  disabled={submitting}
+                  required
+                />
+                {commutationError && (
+                  <p
+                    role="alert"
+                    data-testid="release-document-error"
+                    style={{ margin: '2px 0 0', color: 'var(--eia-red, #b42318)', fontSize: 11 }}
+                  >
+                    {commutationError}
+                  </p>
+                )}
               </Field>
               <div className="eia-actions span-3" style={{ justifyContent: 'flex-end' }}>
                 <button type="submit" disabled={submitting}>Execute commutation</button>

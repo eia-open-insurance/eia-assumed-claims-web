@@ -143,7 +143,25 @@ export const api = {
         `/api/v1/documents?linkedType=${encodeURIComponent(linkedType)}&linkedId=${encodeURIComponent(
           linkedId
         )}`
-      )
+      ),
+    /**
+     * Predictive document lookup for pickers. The Document service is
+     * tenant-scoped platform data, not book data, so the ASSUMED wall is
+     * deliberately not sent: the search carries X-EIA-Tenant only. `signal`
+     * lets the picker discard a superseded keystroke.
+     */
+    search: (q, limit = 8, { signal } = {}) =>
+      request(`/api/v1/documents/search?q=${encodeURIComponent(q)}&limit=${limit}`, {
+        book: null,
+        signal
+      }),
+    /**
+     * Canonical document read used to hydrate the label behind an existing
+     * business reference (for example a commutation's release document). The
+     * read is tenant-scoped, so it carries X-EIA-Tenant only.
+     */
+    get: (documentId) =>
+      request(`/api/v1/documents/${encodeURIComponent(documentId)}`, { book: null })
   },
   payments: {
     /**

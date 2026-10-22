@@ -37,9 +37,17 @@
   panel, and related records, falling back to the short UUID while the lookup loads or fails.
   Cedent reference, the "Why this matters" panel, and related retrocessions by contract id
   remain.
+- Commutation release document picker over `GET /api/v1/documents/search?q=<term>&limit=8`
+  (tenant header only) that searches by document number or title and stores the selected
+  document id/number in the form. The selection links to `/document?record=<id>`, a missing
+  selection blocks execution with an inline error, and `POST .../commute` still sends only the
+  required `releaseDocumentId` UUID. Existing commutations hydrate the document number/title
+  through `GET /api/v1/documents/{id}` (short-id fallback on failure), and the tab explains that
+  the release is a Document service record.
 - Playwright flows for the ASSUMED book wall and layout, register, loss-advice record/accept,
   reserve history, all tabs, close, URL entry, queue filtering, contract selection, contract
   label resolution and fallback, cross-links, diary tasks and notes, claim assignment
-  ownership, versioned PATCH, queue filters, 409 reload-and-retry, and the event-derived
-  Activity timeline (aggregate path/header, order, empty, contained 503, payload facts, and
-  selection refetch).
+  ownership, versioned PATCH, queue filters, 409 reload-and-retry, the event-derived Activity
+  timeline (aggregate path/header, order, empty, contained 503, payload facts, and selection
+  refetch), and the Commutation release document picker (search request, selection label/link,
+  posted `releaseDocumentId`, hydrated label/link, short-id fallback, and required validation).

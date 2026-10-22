@@ -96,13 +96,25 @@ Assumed Claims federated remote: screens, widgets, record tabs, and transaction 
   count. Loading, empty, and 503 error states stay card-local, and a context note records that
   Payment owns approval and execution while the assumed claim holds the loss advice, cash calls,
   and settlement position.
+- The Overview adds a **Related notifications** card after **Payments**. It reads
+  `GET /api/v1/notifications?sourceType=ASSUMED_CLAIM&sourceId=<claimId>` with `X-EIA-Tenant` and
+  no book header (Notifications is a tenant-scoped platform read) and accepts either a bare array
+  or an `{items:[...]}` envelope, using `total` for the heading count when present. Rows are kept
+  only when `sourceId` names this claim (and, when present, `sourceType` is `ASSUMED_CLAIM`), so
+  the shared Notifications service can never surface another record's messages. The heading count
+  covers every linked notification and the table shows the newest three by `createdAt`:
+  notification number linked to `/notifications?record=<id>`, subject, status, and created date.
+  Loading, failure, and empty states stay inside the card and never block or alter the claim; the
+  empty state reads **No notifications linked to this claim.** **View all notifications** opens
+  the Notifications queue scoped to this claim:
+  `/notifications?sourceType=ASSUMED_CLAIM&sourceId=<claimId>`.
 - Money is rendered from the API's decimal strings; the UI never treats an amount as a float for
   submission (inputs are sent as decimal strings).
 - The canonical `ui.css` and `EntityPicker.jsx` are copied from the shell/ui-kit and loaded
   through `style-loader`/`css-loader`. A small scoped tab-hover guard preserves the shared
   transparent tab treatment against the global `main button:hover` normalization.
 - `@swc/core` is pinned to exactly `1.10.7`.
-- Fifty-two Playwright tests mock the API statefully: the ASSUMED book wall and operational layout,
+- Sixty Playwright tests mock the API statefully: the ASSUMED book wall and operational layout,
   the register modal, loss-advice record/accept, reserve history with the derived current
   reserve, every workbench tab including audit, claim close, URL record discovery (queue and
   search projection), queue filtering (claim facts and assignment), predictive contract
@@ -116,7 +128,12 @@ Assumed Claims federated remote: screens, widgets, record tabs, and transaction 
   tenant/book headers, rows with linked payment numbers, payee and created date, paid/pending
   summary, the `{items}` envelope, the empty state, a contained 503 that leaves the claim
   rendered, the loading state before the payment response arrives, and refetch when another
-  claim is selected).
+  claim is selected), and the Related notifications card (the `ASSUMED_CLAIM` source query and
+  tenant header with no book header, newest-three ordering with the full count, unrelated-record
+  exclusion, `/notifications?record=` links, the `{items}` envelope and page total, the empty
+  state, a contained 503 that leaves the claim rendered, the loading state before the
+  notifications response arrives, the filtered-queue hand-off, and refetch when another claim is
+  selected).
 
 ## Local run
 
@@ -129,7 +146,7 @@ npm test
 
 ## Verification
 
-- Playwright: `npx playwright test` (52 tests).
+- Playwright: `npx playwright test` (60 tests).
 - Production bundle: `npm run build`.
 - Contract tests
 - Security scan and SBOM

@@ -174,6 +174,22 @@ export const api = {
       request(`/api/v1/events/aggregate/${encodeURIComponent(claimId)}?limit=${limit}`, {
         book: null
       })
+  },
+  notifications: {
+    /**
+     * Notifications linked to one business source. Notifications is a
+     * tenant-scoped platform service whose own workbench sends no book
+     * header, so the ASSUMED wall is not sent on this read. Assumed Claims
+     * asks for its claim source (`ASSUMED_CLAIM` + the claim id) and renders
+     * the result read-only.
+     */
+    listBySource: (sourceType, sourceId) =>
+      request(
+        `/api/v1/notifications?sourceType=${encodeURIComponent(
+          sourceType
+        )}&sourceId=${encodeURIComponent(sourceId)}`,
+        { book: null }
+      )
   }
 };
 

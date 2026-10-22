@@ -17,6 +17,7 @@ import DiaryNotesTab from './DiaryNotesTab.jsx';
 import { loadDirectory } from './directory.js';
 import DocumentsCard from './DocumentsCard.jsx';
 import EntityPicker from './EntityPicker.jsx';
+import NotificationsCard from './NotificationsCard.jsx';
 import PaymentsCard from './PaymentsCard.jsx';
 import { contractEndpoint, contractRecordLabel } from './contract.js';
 import { navigate, recordHref } from './navigation.js';
@@ -1096,9 +1097,11 @@ export default function App() {
           )}
         </div>
 
-        <DocumentsCard key={selectedClaim.id} claimId={selectedClaim.id} />
+        <DocumentsCard key={`documents-${selectedClaim.id}`} claimId={selectedClaim.id} />
 
-        <PaymentsCard key={selectedClaim.id} claim={selectedClaim} />
+        <PaymentsCard key={`payments-${selectedClaim.id}`} claim={selectedClaim} />
+
+        <NotificationsCard key={`notifications-${selectedClaim.id}`} claim={selectedClaim} />
       </>
     );
   }
